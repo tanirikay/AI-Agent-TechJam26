@@ -1,0 +1,6 @@
+data/catalog.jsonl
+data/catalog.jsonl.gz
+results.json
+__pycache__/
+*.pyc
+.venv/
