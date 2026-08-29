@@ -1,1 +1,140 @@
+from __future__ import annotations
 
+import json
+import re
+import sqlite3
+from pathlib import Path
+
+
+TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
+STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "from",
+    "i", "in", "is", "it", "me", "my", "of", "on", "or", "please", "some",
+    "that", "the", "this", "to", "want", "with", "would", "you", "looking",
+}
+
+
+def _text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        return " ".join(f"{key} {item}" for key, item in value.items())
+    if isinstance(value, list):
+        return " ".join(str(item) for item in value)
+    return str(value)
+
+
+def _terms(text: str) -> list[str]:
+    return [
+        token.lower()
+        for token in TOKEN_RE.findall(text)
+        if len(token) > 1 and token.lower() not in STOPWORDS
+    ]
+
+
+class Agent:
+    """Enhanced baseline: SQLite FTS5 BM25 retrieval with user profile alignment & state tracking."""
+
+    def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
+        self.catalog_path = Path(catalog_path)
+        self.connection = sqlite3.connect(":memory:")
+        self._sessions: set[str] = set()
+        
+        # Session state management
+        self._user_profiles: dict[str, dict] = {}
+        self._session_history: dict[str, list[str]] = {}
+        self._session_constraints: dict[str, list[str]] = {}
+
+        self._build_index()
+
+    def _build_index(self) -> None:
+        cursor = self.connection.cursor()
+        cursor.execute(
+            "CREATE VIRTUAL TABLE products USING fts5("
+            "parent_asin UNINDEXED, title, categories, features, details, store, description, "
+            "tokenize='unicode61 remove_diacritics 2')"
+        )
+        batch: list[tuple[str, str, str, str, str, str, str]] = []
+        with self.catalog_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                product = json.loads(line)
+                batch.append(
+                    (
+                        str(product["parent_asin"]),
+                        _text(product.get("title")),
+                        _text(product.get("categories")),
+                        _text(product.get("features")),
+                        _text(product.get("details")),
+                        _text(product.get("store")),
+                        _text(product.get("description")),
+                    )
+                )
+                if len(batch) >= 1000:
+                    cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
+                    batch.clear()
+        if batch:
+            cursor.executemany("INSERT INTO products VALUES (?, ?, ?, ?, ?, ?, ?)", batch)
+        self.connection.commit()
+
+    def reset(self, session_id: str, user_profile: dict) -> None:
+        """Reset session state and store profile metadata."""
+        self._sessions.add(session_id)
+        self._user_profiles[session_id] = user_profile or {}
+        self._session_history[session_id] = []
+        self._session_constraints[session_id] = []
+
+    def _detect_intent_override(self, message: str) -> bool:
+        """Check if the user is changing their mind or resetting requirements."""
+        override_patterns = [
+            r"actually", r"instead", r"never\s+mind",
+            r"changed\s+my\s+mind", r"switch\s+to", r"different"
+        ]
+        pattern = r"\b(" + "|".join(override_patterns) + r")\b"
+        return bool(re.search(pattern, message, re.I))
+
+    def respond(
+        self,
+        session_id: str,
+        user_message: str,
+        turn: int,
+        top_k: int,
+    ) -> dict:
+        if session_id not in self._sessions:
+            raise RuntimeError("reset must be called before respond")
+
+        # 1. Handle intent overrides / context shifts
+        if self._detect_intent_override(user_message):
+            self._session_constraints[session_id].clear()
+
+        # 2. Extract current user terms
+        current_terms = _terms(user_message)
+        self._session_constraints[session_id].extend(current_terms)
+        self._session_history[session_id].append(user_message)
+
+        # 3. Incorporate high-signal profile preferences into search tokens
+        profile = self._user_profiles.get(session_id, {})
+        preference_tags = profile.get("preference_tags", [])
+        
+        # Build weighted query terms (user query tokens + preference tags)
+        combined_terms = self._session_constraints[session_id] + preference_tags
+        unique_terms = list(dict.fromkeys(combined_terms))[:40]
+
+        expression = " OR ".join(f'"{term}"' for term in unique_terms)
+
+        # 4. Perform FTS5 search
+        if not expression:
+            recommendations: list[dict] = []
+        else:
+            rows = self.connection.execute(
+                "SELECT parent_asin FROM products WHERE products MATCH ? "
+                "ORDER BY bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) LIMIT ?",
+                (expression, top_k),
+            ).fetchall()
+            recommendations = [{"parent_asin": str(row[0])} for row in rows]
+
+        return {
+            "message": "Here are the closest matches I found.",
+            "ask_attribute": None,
+            "recommendations": recommendations,
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+        }
