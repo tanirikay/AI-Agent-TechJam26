@@ -33,7 +33,8 @@ def _terms(text: str) -> list[str]:
 
 
 class Agent:
-    """Enhanced baseline: SQLite FTS5 BM25 retrieval with user profile alignment & state tracking."""
+    """Enhanced baseline: SQLite FTS5 BM25 retrieval with user profile alignment, 
+    intent override detection, and dynamic weight aggregation."""
 
     def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
         self.catalog_path = Path(catalog_path)
@@ -92,6 +93,27 @@ class Agent:
         pattern = r"\b(" + "|".join(override_patterns) + r")\b"
         return bool(re.search(pattern, message, re.I))
 
+    def _calculate_user_weight(self, profile: dict, scenario_type: str = "browsing") -> float:
+        """
+        Calculates a dynamic weight multiplier based on user prior ratings and scenario.
+        """
+        base_weight = 1.0
+
+        # Scenario aggregation
+        if scenario_type == "buying":
+            base_weight += 0.3
+        elif scenario_type == "browsing":
+            base_weight -= 0.1
+
+        # User profile prior rating aggregation
+        prior_rating = profile.get("average_prior_rating", 3.0)
+        if prior_rating >= 4.0:
+            base_weight *= 1.25  # High satisfaction -> boost match weights
+        elif prior_rating <= 2.0:
+            base_weight *= 0.75  # Critical reviewer -> lower weight base
+
+        return base_weight
+
     def respond(
         self,
         session_id: str,
@@ -102,34 +124,44 @@ class Agent:
         if session_id not in self._sessions:
             raise RuntimeError("reset must be called before respond")
 
-        # 1. Handle intent overrides / context shifts
+        # 1. Intent Override Detection
         if self._detect_intent_override(user_message):
             self._session_constraints[session_id].clear()
 
-        # 2. Extract current user terms
+        # 2. Accumulate tokens and message history
         current_terms = _terms(user_message)
         self._session_constraints[session_id].extend(current_terms)
         self._session_history[session_id].append(user_message)
 
-        # 3. Incorporate high-signal profile preferences into search tokens
+        # 3. Aggregate Profile Signals & Calculate Dynamic Weights
         profile = self._user_profiles.get(session_id, {})
         preference_tags = profile.get("preference_tags", [])
-        
-        # Build weighted query terms (user query tokens + preference tags)
+        scenario = profile.get("scenario_type", "browsing")
+
+        user_weight_multiplier = self._calculate_user_weight(profile, scenario)
+
+        # Scale BM25 column weights using dynamic user profile weight
+        title_wt = round(6.0 * user_weight_multiplier, 2)
+        category_wt = round(4.0 * user_weight_multiplier, 2)
+        features_wt = round(2.5 * user_weight_multiplier, 2)
+        details_wt = round(2.5 * user_weight_multiplier, 2)
+
+        # 4. Combine session search terms with preference tags
         combined_terms = self._session_constraints[session_id] + preference_tags
         unique_terms = list(dict.fromkeys(combined_terms))[:40]
 
         expression = " OR ".join(f'"{term}"' for term in unique_terms)
 
-        # 4. Perform FTS5 search
+        # 5. Execute FTS5 Search using Aggregated Weights
         if not expression:
             recommendations: list[dict] = []
         else:
-            rows = self.connection.execute(
-                "SELECT parent_asin FROM products WHERE products MATCH ? "
-                "ORDER BY bm25(products, 0.0, 6.0, 4.0, 2.5, 2.5, 1.5, 1.0) LIMIT ?",
-                (expression, top_k),
-            ).fetchall()
+            query = f"""
+                SELECT parent_asin FROM products WHERE products MATCH ? 
+                ORDER BY bm25(products, 0.0, {title_wt}, {category_wt}, {features_wt}, {details_wt}, 1.5, 1.0) 
+                LIMIT ?
+            """
+            rows = self.connection.execute(query, (expression, top_k)).fetchall()
             recommendations = [{"parent_asin": str(row[0])} for row in rows]
 
         return {
