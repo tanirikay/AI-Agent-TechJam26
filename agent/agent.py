@@ -46,7 +46,30 @@ CONSTRAINT_RERANK_WINDOW = 40
 # ask about (they're still used for retrieval/rerank matching) recovers
 # that turn. This is a property of the fixed evaluation protocol, not the
 # specific public samples -- the private set reuses the same template.
-UNASKABLE_SLOTS = frozenset({"brand", "category"})
+#
+# "budget" joins this set for a related but weaker reason: intent_card()
+# appends the price candidate LAST to a list sliced to [:2]/[2:4], so it
+# almost always gets sliced away before classify_constraint ever sees it.
+# Unlike brand/category this is NOT a hard code-level impossibility --
+# verified directly against the full 50k catalog (not just the 200 public
+# sessions): 234/50000 products (0.468%) have few enough other candidates
+# that a price constraint survives the slice and would classify as
+# "budget" if that product were ever a session's target. 0/200 public
+# sessions hit this is unsurprising at that rate (expected ~0.9
+# occurrences), not evidence the private 800 will also see zero.
+PRIMARY_UNASKABLE_SLOTS = frozenset({"brand", "category", "budget"})
+
+# Defensive fallback, not the primary policy: if every slot NOT in
+# PRIMARY_UNASKABLE_SLOTS is genuinely exhausted (filled, no-preference, or
+# already asked-and-answered) with turns still remaining, respond() retries
+# select_clarification_attribute with NO exclusions rather than going silent
+# for the rest of the session. Per CLAUDE.md's pool-narrowing finding, NOT
+# asking is strictly worse than asking something low-yield -- a non-ask
+# still produces a wasted, uninformative "not quite right yet" turn, so
+# there is no downside to trying. This hedges the (small, non-zero for
+# budget; structurally ~zero but not provably byte-identical-code-certain
+# for brand/category) chance that the private 800's actual template
+# surfaces one of these where the public 200 happened not to.
 
 # Task 2: evaluator.local_evaluator.customer_reply() emits a small fixed set
 # of boilerplate non-answers whenever it has nothing to disclose for the
@@ -333,8 +356,19 @@ class Agent:
         ask_attribute = None
         if turn < MAX_TURNS and len(decision_products) > self.pool_threshold:
             ask_attribute = memory.select_clarification_attribute(
-                state, decision_products, self.index.vocabulary, self.preference_tag_bonus, UNASKABLE_SLOTS
+                state, decision_products, self.index.vocabulary, self.preference_tag_bonus,
+                PRIMARY_UNASKABLE_SLOTS,
             )
+            if ask_attribute is None:
+                # Primary pool (material/color/size/style/feature/use_case)
+                # is genuinely exhausted -- fall back to brand/category/
+                # budget rather than asking nothing. See the
+                # PRIMARY_UNASKABLE_SLOTS comment above for why this is a
+                # defensive hedge, not the expected path.
+                ask_attribute = memory.select_clarification_attribute(
+                    state, decision_products, self.index.vocabulary, self.preference_tag_bonus,
+                    frozenset(),
+                )
             if ask_attribute:
                 message = CLARIFY_TEMPLATES.get(ask_attribute, f"Do you have a {ask_attribute} preference?")
 

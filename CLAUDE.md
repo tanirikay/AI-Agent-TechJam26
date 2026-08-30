@@ -41,11 +41,16 @@ runs the untouched weak-BM25 starter for comparison.
 | This agent (before clarification-exhaustion fix) | 0.500 | 0.335 | 6.705 | 0.437 |
 | This agent (iter 1, `preference_tag_bonus=0.2`) | 0.775 | 0.4919 | 4.875 | 0.6576 |
 | This agent (pre-iter 4, `preference_tag_bonus=1.5`) | 0.795 | 0.5076 | 4.620 | 0.6774 |
-| **This agent (current, iter 4 exact window 40)** | **0.915** | **0.6296** | **3.595** | **0.7945** |
+| This agent (post-iter 4, exact window 40) | 0.915 | 0.6296 | 3.595 | 0.7945 |
+| This agent (iter 5, field-scope widening) | 0.915 | 0.6325 | 3.645 | 0.794348 |
+| **This agent (current, iter 6 budget exclusion + ask fallback tier)** | **0.920** | **0.631383** | **3.635** | **0.796715** |
 
-Per scenario (current): buying 0.9375 / browsing 0.9375 / intent_override
+Per scenario (post-iter 4): buying 0.9375 / browsing 0.9375 / intent_override
 0.8667 / boundary 0.700 hit rate. Iteration 4 improved every scenario over
-the disabled control; see the complete A/B below.
+the disabled control; see the complete A/B below. Iteration 5 is a clean,
+zero-hit-to-miss MRR improvement at essentially the same TechnicalScore
+(the small MTTC give-back roughly offsets the MRR gain) — see below for why
+it's adopted anyway.
 
 Reproduce with `python -m scripts.run_memory_agent`. Numbers are
 deterministic run-to-run (see the determinism fix below); verified by two
@@ -664,19 +669,215 @@ flips, positive bootstrap interval against control, deterministic output,
 no target leakage, and practical latency. `results_memory_agent.json` was
 regenerated with the adopted window-40 default.
 
+## Iteration 5 — private-set generalization audit: field-scope widening (ADOPTED) + `fabric` vocab entry (TESTED AND REJECTED) — 2026-08-30
+
+Motivated by a real concern: every tuning decision through iteration 4 was
+validated only against the 200 public sessions, and the private 800 sample
+a different, much larger slice of the *same* 50,000-product catalog. Traced
+every place `evaluator/local_evaluator.py` generates a customer utterance
+(`initial_message`, `customer_reply`, `behavior_for`) and confirmed there is
+**no free-text paraphrasing anywhere in the shipped simulator** — every
+utterance interpolates literal catalog title/feature/detail text into a
+fixed template. So "the private set might phrase things differently" isn't
+the actual risk; the real, locally-measurable question is whether our
+controlled vocabulary and product-side extraction cover enough of the
+*full* 50k catalog's literal text, not just the ~200 products the public
+sessions happen to target.
+
+### Diagnostic (`scripts/diagnose_vocab_coverage.py`)
+
+Measured two things across all 50,000 catalog products, not just the 200
+public targets:
+
+1. **True vocabulary gap is small.** Cross-checked our MATERIAL_VOCAB/
+   COLOR_VOCAB against evaluator's own narrow `MATERIAL_RE`/`COLOR_RE` (the
+   regexes that drive what the simulated customer discloses). Once compared
+   on equal field scope, our vocab misses only **4.0%** of the evaluator's
+   material hits and **0.3%** of its color hits.
+2. **The real, much bigger gap is field scope, not vocabulary.**
+   `agent/memory.py::get_attribute_value` (product side, used by
+   `select_clarification_attribute`'s entropy×coverage scoring) only ever
+   searched `title+features`. The evaluator's own `searchable_text()` (used
+   to build every customer disclosure) searches `title, features, details,
+   description, categories, store`. Widening our search to just
+   `title+features+details+description` (deliberately excluding
+   `store`/`categories` — see below) recovers, out of 50,000 products:
+   +1369 material, +2999 color, +3480 size, +4575 style, +3871 use_case,
+   +1827 feature matches — using the exact same trusted exact-match logic,
+   just pointed at more text.
+
+### Change 1 — widen `get_attribute_value`'s field scope: ADOPTED
+
+Added `_product_slot_text()` in `agent/memory.py`, searching
+`title+features+details+description`. `store`/`categories` are deliberately
+excluded even though the evaluator reads them — those are exactly the
+fields whose raw text caused the original brand/category false-positive bug
+(see the `_contains_term` docstring in `vocab.py`); category and brand
+already have dedicated, safe extraction paths (`deepest_category_segment`,
+`store` field) and don't need to be re-mined here.
+
+A/B against the pre-iteration-5 baseline (`python -m scripts.run_memory_agent`):
+
+| | HitRate@10 | MRR | MTTC | TechnicalScore | hit→miss |
+|---|---|---|---|---|---|
+| control (iter 4) | 0.915 | 0.629577 | 3.595 | 0.794473 | — |
+| **field-scope widening (adopted)** | **0.915** | **0.632494** | 3.645 | 0.794348 | **0** |
+
+Zero hit-to-miss regressions, HR@10 unchanged, MRR improved. TechnicalScore
+is essentially flat (a small MRR gain roughly offset by a small MTTC
+give-back) — adopted anyway because it fixes a real, measured, substantial
+coverage gap against the full catalog the private 800 actually draws from,
+not because of the (negligible) public-set delta. This is the more honest
+form of "does this generalize" evidence available here: the public 200
+can only prove *this specific change doesn't regress what's already
+observed*, not that it helps on unseen private-set products — but the
+field-scope fix is validated directly against all 50,000 catalog products,
+not extrapolated from 200.
+
+### Change 2 — add `fabric` to `MATERIAL_VOCAB`: TESTED AND REJECTED
+
+`fabric` is the single largest residual true-vocabulary-gap term (1247/1131
+products even after the field-scope fix) and looked zero-ambiguity to add —
+it's literally in `evaluator.local_evaluator.MATERIALS`. Adding it broke
+`public_0071` (intent_override): hit at turn 5 rank 1 → total miss.
+
+**Root cause, traced turn-by-turn against the unmodified agent:** this is
+*not* an override-vs-paraphrase confusion — `detect_override()` only ever
+treats a new value as conflicting when a contradiction cue is present *and*
+the value differs from what's filled, so a synonym resolving to the *same*
+canonical value can never trigger a false override. What actually happened:
+adding `fabric` gave more pool candidates a recognized `material` value,
+which shifted `material`'s entropy×coverage score just enough to flip
+which attribute got asked at turn 3 for this session's specific pool
+(`material` instead of `feature`). That reordering meant the scripted
+override at turn 4 landed on a different pending slot than before, so the
+one disclosure that identified the target ("90% Cotton, 10% Others") never
+got asked for in time. Confirmed by isolating each change independently
+(`git stash` one file at a time + re-run): field-scope alone reproduces the
+original turn sequence exactly and has zero regressions; `fabric` is the
+sole cause of the flip. `MATERIAL_VOCAB` reverted; the field-scope fix
+shipped without it. Don't re-add `fabric` (or any single new controlled-vocab
+term) without re-running the full 200 + checking hit-to-miss zero — this is
+a concrete demonstration that even a single, well-justified vocabulary
+addition can cascade through the clarification-order scoring in
+non-obvious, session-specific ways.
+
+### Turn-1 attribute yield rates (`scripts/diagnose_attribute_yield.py`)
+
+Separately measured, per askable attribute, how often asking it FIRST (at
+turn 1, given whatever the opening message already discloses) gets a real
+disclosure from `customer_reply()` vs. a dead "I don't have an additional
+preference" reply, across all 200 public sessions:
+
+| attribute | yield | attribute | yield |
+|---|---|---|---|
+| `other` | 100% | `style` | 8.5% |
+| `feature` | 96% | `size` | 4.5% |
+| `material` | 72.5% | `use_case` | 2% |
+| `color` | 25.5% | `brand`/`budget`/`category` | 0% |
+
+Holds consistently across all four scenarios. Two concrete implications,
+not yet implemented:
+
+- **`budget` belongs in `UNASKABLE_SLOTS` alongside `brand`/`category`.**
+  Same standard of evidence already used for the other two (0/200, same
+  root cause already documented under "Known dead ends" —
+  `intent_card()`'s price candidate is structurally sliced off the
+  disclosable list). Currently still live in
+  `select_clarification_attribute`'s candidate pool for no benefit. Trivial,
+  zero-risk, not yet applied.
+- **`select_clarification_attribute` has no notion of yield rate** — it
+  scores purely on pool entropy×coverage + profile bonus, so it can lead
+  with `style` (8.5%) or `use_case` (2%, as dead as `budget`) over
+  `feature`/`material`. A yield-rate-aware term (same additive-term pattern
+  as `preference_tag_bonus`) is a plausible lever for both MRR and MTTC
+  together, since a wasted low-yield ask delays every subsequent turn's
+  constraint-rerank signal by one turn for nothing. Proposed but NOT
+  implemented or tested — needs the same sweep → split-half →
+  zero-hit-to-miss-regression gate as everything else here before being
+  trusted, and iteration 5's `fabric` result is a fresh reminder that
+  changes touching this scoring function can have non-obvious,
+  session-specific cascading effects.
+- `other` bypasses `classify_constraint()` entirely (100% yield) but isn't a
+  tracked `SLOT_NAME` — if `select_clarification_attribute` ever returned
+  it, `state.pending_ask = "other"` would `KeyError` on
+  `state.slots[state.pending_ask]` in `update_state`'s Step D.5 (caught by
+  the evaluator's `try/except`, degrading to an empty response for that
+  turn rather than crashing the harness, but still a silently dead turn).
+  Real but smaller upside than it looks (only ~4 points above what
+  `feature` already gets), and unimplemented — needs `memory.py` changes to
+  track it outside the slot dict before it's safe to return.
+
+## Iteration 6 — budget/brand/category: exclude from primary ask pool, keep as last-resort fallback — ADOPTED — 2026-08-30
+
+Direct follow-up to a stated concern: iteration 5 measured brand/category/
+budget at 0% turn-1 yield on the public 200 and recommended excluding
+`budget` the same way `brand`/`category` already were. But a hard,
+permanent exclusion assumes the public 200's 0% generalizes perfectly to
+the private 800, and that assumption deserves its own evidence rather than
+being taken on faith.
+
+**Checked how airtight each exclusion actually is, rather than treating
+all three the same:**
+- `brand`/`category` are provably, not just empirically, impossible:
+  `classify_constraint()`'s source has exactly seven possible return
+  values (`budget/material/color/size/style/use_case/feature`) — there is
+  no code path that can ever return `"brand"` or `"category"`, for any
+  input, on any product. This holds for the private 800 with certainty
+  equal to the "same template" assurance itself.
+- `budget` is structurally *likely* to fail (intent_card() appends the
+  price candidate last to a list sliced to `[:2]`/`[2:4]`), but not
+  impossible. Measured directly against the full 50k catalog: **234/50,000
+  products (0.468%)** have few enough other candidates that a price
+  constraint survives the slice and would classify as `budget` if that
+  product were ever sampled as a target. 0/200 public sessions hitting this
+  is fully consistent with a true rate of ~0.47% (expected ~0.9
+  occurrences) — it is not evidence the private 800 will also see zero.
+
+**Design, in `agent/agent.py`:** replaced `UNASKABLE_SLOTS` with
+`PRIMARY_UNASKABLE_SLOTS = {"brand", "category", "budget"}`. `respond()`
+calls `select_clarification_attribute` with that exclusion first as
+before; if it returns `None` (every other slot genuinely exhausted:
+filled, no-preference, or already asked-and-answered) with turns
+remaining, it retries once with no exclusions at all, falling back to
+brand/category/budget rather than asking nothing. Per the existing
+pool-narrowing finding (a non-ask still produces a wasted, uninformative
+"not quite right yet" reply), there is no downside to trying — the
+fallback only ever engages once nothing else is left, so it costs at most
+one turn in the case where the private 800 behaves exactly like the public
+200, and recovers real signal in the ~0.5% budget case (and, per the
+`brand`/`category` proof above, provides free insurance against the small
+residual chance the "same template" assurance isn't byte-for-byte exact).
+
+A/B against iteration 5 (`python -m scripts.run_memory_agent`):
+
+| | HitRate@10 | MRR | MTTC | TechnicalScore | hit→miss |
+|---|---|---|---|---|---|
+| iteration 5 (control) | 0.915 | 0.632494 | 3.645 | 0.794348 | — |
+| **iteration 6 (adopted)** | **0.920** | **0.631383** | **3.635** | **0.796715** | **0** |
+
+Zero hit-to-miss regressions; one clean miss→hit (`public_0087`,
+browsing — matches the scenario breakdown exactly, browsing
+0.9375→0.95, +1/80); two pre-existing hits shuffled rank by ±1 turn. No
+scenario regressed (boundary 0.700, buying 0.9375, intent_override 0.8667
+all unchanged). All 14 tests still pass.
+
 ## Suggested priority for the next session
 
 Iteration 4 disproved the claim that all deterministic constraint-aware
-reranking was exhausted. Literal raw-clause satisfaction was the missing
-signal and is now adopted. The agent sits at HR@10 0.915 / MRR 0.629577 /
-MTTC 3.595 / TS 0.794473.
+reranking was exhausted; iteration 5 disproved the claim that the only
+generalization risk was "the private set might phrase things differently"
+(it doesn't); iteration 6 replaced a faith-based permanent exclusion with
+one backed by full-catalog evidence, plus a zero-cost fallback tier. The
+agent sits at HR@10 0.920 / MRR 0.631383 / MTTC 3.635 / TS 0.796715.
 
 What actually remains, in order:
 
-1. **Validate raw-clause coverage and false matches on the private set before
-   broadening extraction.** Exact matching is deliberately conservative;
-   any token-coverage/fuzzy diagnostic must remain separately disabled unless
-   it passes the same no-hit-to-miss and split-half gates.
+1. **Yield-rate-aware clarification scoring** (iteration 5's attribute-yield
+   table). Plausible joint MRR/MTTC win; needs the full validation gate
+   before adopting, and expect non-obvious interactions given both the
+   `fabric` result and iteration 6's own fallback tier (re-check the
+   fallback path still behaves once this scoring changes).
 2. **The 6 known retrieval failures** (gold never entered the 200-pool in the
    pre-iteration ceiling diagnostic; half are jeans with a generic "Jeans"
    category segment) cap
@@ -689,7 +890,9 @@ What actually remains, in order:
    default rather than proof that larger windows cannot generalize better.
 4. Otherwise redirect effort to the report and demo. Previously rejected
    experiments remain documented and disabled; Iteration 4 is the adopted
-   offline deterministic ranking mechanism.
+   offline deterministic ranking mechanism, iteration 5's field-scope
+   widening is the adopted generalization fix, and iteration 6's fallback
+   tier is the adopted private-set hedge.
 
 ## Useful scripts
 
@@ -713,6 +916,8 @@ What actually remains, in order:
 | `scripts/ab_noninformative_filter.py` | iter 3 Phase 2: A/B the structural non-informative-turn query filter, paired diff + bootstrap CI (rejected, −0.159) |
 | `scripts/tune_slot_boost.py` | iter 3 step 1: sweep `slot_boost_k` (repeat confirmed slot terms in the MATCH expr), paired diff + bootstrap CI (rejected, monotone negative) |
 | `scripts/ab_constraint_rerank.py` | iter 4: control vs exact windows 20/40/100/200, scenario/split/paired/bootstrap/runtime report (adopted window 40) |
+| `scripts/diagnose_vocab_coverage.py` | iter 5: measures agent/vocab.py coverage across the FULL 50k catalog (not just 200 sessions), production vs. moderate vs. wide field scope, cross-checked against evaluator's own MATERIAL_RE/COLOR_RE |
+| `scripts/diagnose_attribute_yield.py` | iter 5: turn-1 yield rate per `ask_attribute` against `evaluator.local_evaluator.customer_reply()`, overall and per scenario |
 
 All reuse `evaluator.local_evaluator` helpers so the simulated-customer
 protocol stays identical to the real scoring path; none of them modify

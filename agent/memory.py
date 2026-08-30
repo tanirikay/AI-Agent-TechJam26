@@ -454,6 +454,37 @@ def update_state(state: SessionState, user_message: str, turn: int, vocabulary: 
     return state
 
 
+def _flatten_text(value: object) -> str:
+    if isinstance(value, dict):
+        return " ".join(f"{key} {_flatten_text(item)}" for key, item in value.items())
+    if isinstance(value, list):
+        return " ".join(_flatten_text(item) for item in value)
+    return str(value) if value is not None else ""
+
+
+def _product_slot_text(product: dict) -> str:
+    """Text searched for color/size/material/style/feature/use_case.
+
+    title+features alone measurably undershoots the evaluator's own
+    disclosure logic (evaluator.local_evaluator.searchable_text(), which
+    also reads details/description/categories/store): on the full 50k
+    catalog, adding details+description recovers +1369 material / +2999
+    color / +3480 size / +4575 style / +3871 use_case / +1827 feature
+    matches (scripts/diagnose_vocab_coverage.py). store/categories are
+    deliberately excluded here even though the evaluator reads them --
+    those are exactly the fields whose raw text caused the original
+    brand/category false-positive bug (see vocab.py's _contains_term
+    docstring); category and brand already have their own dedicated,
+    safe extraction paths above and don't need to be remined here.
+    """
+    return " ".join((
+        str(product.get("title") or ""),
+        _flatten_text(product.get("features")),
+        _flatten_text(product.get("details")),
+        _flatten_text(product.get("description")),
+    ))
+
+
 def get_attribute_value(product: dict, slot_name: str, vocabulary: Vocabulary) -> object:
     """Route each slot through the field where its signal actually lives.
 
@@ -476,10 +507,7 @@ def get_attribute_value(product: dict, slot_name: str, vocabulary: Vocabulary) -
         parent_asin = str(product.get("parent_asin") or "")
         cached = vocabulary.product_slot_cache.get(parent_asin)
         if cached is None:
-            title = str(product.get("title") or "")
-            features = product.get("features")
-            features_text = " ".join(str(f) for f in features) if isinstance(features, list) else str(features or "")
-            cached = vocabulary.extract(f"{title} {features_text}", include_catalog_terms=False)
+            cached = vocabulary.extract(_product_slot_text(product), include_catalog_terms=False)
             vocabulary.product_slot_cache[parent_asin] = cached
         return cached.get(slot_name)
 
