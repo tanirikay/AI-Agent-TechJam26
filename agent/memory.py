@@ -16,7 +16,13 @@ from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum, auto
 
-from agent.vocab import Vocabulary, deepest_category_segment, parse_price
+from agent.vocab import (
+    BudgetConstraint,
+    Vocabulary,
+    deepest_category_segment,
+    extract_budget_constraint,
+    parse_price,
+)
 from agent.constraint_rerank import normalize_constraint_text
 
 SLOT_NAMES = (
@@ -111,6 +117,9 @@ class SessionState:
     noninformative_turns: set[int] = field(default_factory=set)
     pending_ask: str | None = None  # most recent slot we asked about and are waiting on
     user_profile: dict = field(default_factory=dict)
+    # Kept alongside the historical float-valued budget slot so existing
+    # callers of get_filled_slots()/extract_budget() remain compatible.
+    budget_constraint: BudgetConstraint | None = None
 
 
 def reset(session_id: str, user_profile: dict) -> SessionState:
@@ -371,6 +380,7 @@ def update_state(state: SessionState, user_message: str, turn: int, vocabulary: 
 
     # --- Step B: extract candidate slot values from this message ---
     extracted = vocabulary.extract(user_message)
+    parsed_budget_constraint = extract_budget_constraint(user_message)
 
     # --- Step B.5: retain exact raw clauses independently of controlled slots ---
     if any(cue in user_message.lower() for cue in CONTRADICTION_CUES):
@@ -412,6 +422,9 @@ def update_state(state: SessionState, user_message: str, turn: int, vocabulary: 
         else:
             # already filled, no override detected -- do not clobber
             continue
+
+        if slot_name == "budget" and parsed_budget_constraint is not None:
+            state.budget_constraint = parsed_budget_constraint
 
         if slot.asked and not slot.answered:
             slot.answered = True

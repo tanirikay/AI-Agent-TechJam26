@@ -12,6 +12,10 @@ from pathlib import Path
 
 from agent import memory
 from agent.constraint_rerank import rerank_by_exact_constraints
+from agent.price_rerank import (
+    rerank_by_maximum_budget,
+    rerank_by_price_constraint,
+)
 from agent.retrieval import (
     DEFAULT_FIELD_WEIGHTS,
     CatalogIndex,
@@ -22,6 +26,7 @@ from agent.retrieval import (
     retrieve_scored,
     _terms,
 )
+from agent.vocab import BudgetConstraint
 
 POOL_THRESHOLD = 15          # candidate pool small enough to just answer
 RETRIEVAL_POOL_SIZE = 200    # how many candidates select_clarification_attribute scores over
@@ -29,6 +34,8 @@ MAX_TURNS = 10
 # A stated budget is a soft preference, not a hard cutoff -- allow some
 # headroom before treating a candidate as "over budget."
 BUDGET_TOLERANCE = 1.15
+TARGET_PRICE_MIN_COVERAGE = 0.10
+TARGET_PRICE_WINDOW = 40
 # Iteration 4: window 40 is the smallest exact-clause window statistically
 # indistinguishable from the point-estimate winner (200) on paired bootstrap.
 # Passing None remains the fully inert, pre-iteration control.
@@ -132,6 +139,10 @@ class Agent:
         slot_boost_k: int = 0,
         embed_rerank_window: int | None = None,
         constraint_rerank_window: int | None = CONSTRAINT_RERANK_WINDOW,
+        target_price_rerank: bool = False,
+        target_price_min_coverage: float = TARGET_PRICE_MIN_COVERAGE,
+        target_price_window: int = TARGET_PRICE_WINDOW,
+        target_price_distance_sort: bool = False,
     ) -> None:
         # Accepting a prebuilt index lets a weight sweep reuse the same
         # ~50k-row FTS5 index across many configurations instead of paying
@@ -140,6 +151,13 @@ class Agent:
         self.field_weights = field_weights
         self.pool_threshold = pool_threshold
         self.budget_tolerance = budget_tolerance
+        # Target-price proximity remains opt-in until it has evidence from
+        # real budget-bearing sessions. Maximum-budget demotion is separate
+        # and remains active at every known-price coverage level.
+        self.target_price_rerank = target_price_rerank
+        self.target_price_min_coverage = target_price_min_coverage
+        self.target_price_window = target_price_window
+        self.target_price_distance_sort = target_price_distance_sort
         self.preference_tag_bonus = preference_tag_bonus
         # Task 2 (iter 2): drop the simulator's boilerplate non-answers from
         # the BM25 query text by LEXICAL match on the known templates.
@@ -256,17 +274,9 @@ class Agent:
         catalog has no numeric price -- see the catalog-audit note in
         agent/memory.py). Relative BM25 order is preserved within each tier.
         """
-        threshold = budget * self.budget_tolerance
-        within: list[str] = []
-        over: list[str] = []
-        for asin in pool_asins:
-            product = self.index.products.get(asin)
-            price = memory.get_attribute_value(product, "budget", self.index.vocabulary) if product else None
-            if price is not None and price > threshold:
-                over.append(asin)
-            else:
-                within.append(asin)
-        return within + over
+        return rerank_by_maximum_budget(
+            pool_asins, self.index.products, budget, self.budget_tolerance
+        )
 
     def respond(self, session_id: str, user_message: str, turn: int, top_k: int) -> dict:
         if session_id not in self._sessions:
@@ -310,9 +320,23 @@ class Agent:
                     core_terms.extend(_terms(str(value)))
                 narrowed_asins = narrow_by_conjunction(self.index, pool_asins, core_terms)
 
-        budget_value = memory.get_filled_slots(state).get("budget")
-        if isinstance(budget_value, (int, float)):
-            pool_asins = self._apply_budget_bucketing(pool_asins, float(budget_value))
+        budget_constraint = state.budget_constraint
+        if budget_constraint is None:
+            # Backward compatibility for manually constructed/older state
+            # that contains only the historical float-valued budget slot.
+            budget_value = memory.get_filled_slots(state).get("budget")
+            if isinstance(budget_value, (int, float)):
+                budget_constraint = BudgetConstraint(float(budget_value), "maximum")
+        pool_asins = rerank_by_price_constraint(
+            pool_asins,
+            self.index.products,
+            budget_constraint,
+            maximum_tolerance=self.budget_tolerance,
+            target_enabled=self.target_price_rerank,
+            target_min_coverage=self.target_price_min_coverage,
+            target_window=self.target_price_window,
+            target_distance_sort=self.target_price_distance_sort,
+        )
 
         if self.constraint_rerank_window is not None:
             pool_asins = rerank_by_exact_constraints(

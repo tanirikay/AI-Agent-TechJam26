@@ -16,6 +16,18 @@ from dataclasses import dataclass, field
 TOKEN_RE = re.compile(r"[a-z0-9$.]+", re.IGNORECASE)
 MIN_SINGLE_WORD_TERM_LEN = 6
 
+
+@dataclass(frozen=True)
+class BudgetConstraint:
+    """An explicit numeric price constraint extracted from shopper text."""
+
+    amount: float
+    mode: str  # "maximum" or "target"
+
+    def __post_init__(self) -> None:
+        if self.mode not in {"maximum", "target"}:
+            raise ValueError(f"unsupported budget mode: {self.mode}")
+
 # --- controlled vocabularies: canonical_value -> set of surface synonyms ---
 # Keys are the canonical value we store in a slot. Synonyms are additional
 # surface forms that should normalize to that canonical value. The key itself
@@ -140,15 +152,54 @@ NO_PREFERENCE_CUES = (
     "surprise me",
 )
 
-BUDGET_PATTERNS = [
-    re.compile(r"under\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
-    re.compile(r"less than\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
-    re.compile(r"below\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
-    re.compile(r"budget(?:\s+of|\s+is|\s+around)?\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
-    re.compile(r"around\s*\$?\s*(\d+(?:\.\d+)?)", re.I),
-    re.compile(r"\$\s*(\d+(?:\.\d+)?)"),
-    re.compile(r"(\d+(?:\.\d+)?)\s*dollars", re.I),
-]
+_NUMBER = r"\d+(?:\.\d+)?"
+_AMOUNT = rf"(?P<amount>{_NUMBER})"
+_CURRENCY_AMOUNT = rf"(?:\$\s*{_AMOUNT}|(?P<amount_dollars>{_NUMBER})\s*dollars?)"
+
+# Specific intent phrases come first so the legacy generic "$50" fallback
+# cannot erase the distinction between "around $50" and "under $50".
+_BUDGET_CONSTRAINT_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # Preserve the incumbent bare "around 50" form; newer target synonyms
+    # below require currency unless explicit budget context is present.
+    ("target", re.compile(
+        rf"\baround\s*\$?\s*{_AMOUNT}(?:\s*dollars?)?",
+        re.I,
+    )),
+    ("target", re.compile(
+        rf"\b(?:around|about|approximately|roughly|close\s+to)\s*{_CURRENCY_AMOUNT}",
+        re.I,
+    )),
+    ("target", re.compile(
+        rf"\bbudget\s+(?:is\s+)?(?:around|about|approximately|roughly|close\s+to)\s*"
+        rf"\$?\s*{_AMOUNT}(?:\s*dollars?)?",
+        re.I,
+    )),
+    # The first three forms intentionally keep their historical optional
+    # currency marker for backward compatibility with "under 50".
+    ("maximum", re.compile(
+        rf"\b(?:under|below|less\s+than)\s*\$?\s*{_AMOUNT}(?:\s*dollars?)?",
+        re.I,
+    )),
+    ("maximum", re.compile(
+        rf"\b(?:no\s+more\s+than|at\s+most)\s*{_CURRENCY_AMOUNT}",
+        re.I,
+    )),
+    ("maximum", re.compile(
+        rf"\bmaximum(?:\s+budget)?(?:\s+of|\s+is)?\s*{_CURRENCY_AMOUNT}",
+        re.I,
+    )),
+    ("maximum", re.compile(
+        rf"\bbudget(?:\s+of|\s+is)?\s*\$?\s*{_AMOUNT}(?:\s*dollars?)?",
+        re.I,
+    )),
+    # Preserve the incumbent interpretation of an otherwise unqualified
+    # explicit currency amount as a maximum budget.
+    ("maximum", re.compile(rf"{_CURRENCY_AMOUNT}", re.I)),
+)
+
+# Backward-compatible exported pattern list for callers that only inspected
+# this constant. New code should use extract_budget_constraint().
+BUDGET_PATTERNS = [pattern for _, pattern in _BUDGET_CONSTRAINT_PATTERNS]
 
 
 def _normalize(text: str) -> str:
@@ -231,15 +282,24 @@ def _match_vocab(text_norm: str, tokens: list[str], vocab: dict[str, set[str]]) 
     return None
 
 
-def extract_budget(text: str) -> float | None:
-    for pattern in BUDGET_PATTERNS:
+def extract_budget_constraint(text: str) -> BudgetConstraint | None:
+    """Extract explicit numeric price language with its ranking mode."""
+    for mode, pattern in _BUDGET_CONSTRAINT_PATTERNS:
         match = pattern.search(text)
         if match:
             try:
-                return float(match.group(1))
+                groups = match.groupdict()
+                amount = groups.get("amount") or groups.get("amount_dollars")
+                return BudgetConstraint(float(amount), mode)
             except ValueError:
                 continue
     return None
+
+
+def extract_budget(text: str) -> float | None:
+    """Compatibility wrapper retaining the historical float return type."""
+    constraint = extract_budget_constraint(text)
+    return constraint.amount if constraint is not None else None
 
 
 def parse_price(price: object) -> float | None:

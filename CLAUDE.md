@@ -922,3 +922,48 @@ What actually remains, in order:
 All reuse `evaluator.local_evaluator` helpers so the simulated-customer
 protocol stays identical to the real scoring path; none of them modify
 `evaluator/` or the public labels.
+
+## Defensive budget/price handling — mode-aware hardening (2026-08-30)
+
+The catalog contains 50,000 products, of which 10,415 have a parseable price
+(**20.83% coverage**); 178/200 public targets have a known price. The public
+set discloses a budget in 0/200 sessions. `intent_card()` appends price last
+before truncating its candidates to four constraints, although the current
+catalog audit correctly treats private budget disclosure as possible rather
+than impossible.
+
+Before this change, `extract_budget()` returned only a float for `under`,
+`below`, `less than`, `budget [of|is|around]`, `around`, `$N`, and `N dollars`.
+The established reranker applied a stable 15%-tolerance partition after
+retrieval and before exact-clause reranking: only known over-budget products
+were demoted; unknown prices stayed neutral and preserved incumbent order.
+Missing prices remained `None`. The previous tests did not cover this path.
+
+`BudgetConstraint(amount, mode)` now distinguishes maximum language from
+target-price language while `extract_budget()` remains a float compatibility
+wrapper. Maximum phrases include `under`, `below`, `less than`, `no more
+than`, `at most`, `maximum`, and `budget of`; target phrases include `around`,
+`about`, `approximately`, `roughly`, and `close to`. Vague words such as
+`cheap`, `affordable`, `premium`, and `expensive` never produce a constraint.
+
+Maximum behavior is unchanged: it only stably demotes confirmed violations
+inside the already-retrieved candidate pool. Target tiering is deliberately
+disabled by default (`target_price_rerank=False`); when explicitly enabled it
+only touches a bounded top-40 window, requires 10% known-price coverage, and
+stably tiers known prices within ±15%, unknown prices, then known prices
+outside the band. Absolute-distance sorting remains a separate disabled
+experiment.
+
+There are now 35 passing tests, including fixture coverage for parsing, null
+prices, 5%/10%/high coverage, stable tiers, no-budget inertia, target fallback,
+and deterministic repeated output. `scripts/ab_budget_robustness.py` produces
+the 15-case synthetic-only diagnostic in `runs/budget_robustness.json`; its
+results are not official metrics and do not justify enabling target tiering.
+
+Public validation against this repository's iteration-6 baseline is
+byte-identical: control, new default at `PYTHONHASHSEED=1`, and new default at
+`PYTHONHASHSEED=999` all hash to
+`9decfff1b972049a043e8d747d471082f29c8d4c7d5dce0d9a3c54f6c2738548`.
+Metrics remain HR@10 **0.920**, MRR **0.631383**, MTTC **3.635**, and
+TechnicalScore **0.796715**. Target pricing remains opt-in until genuine
+budget-bearing sessions provide evidence.

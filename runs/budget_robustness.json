@@ -1,0 +1,836 @@
+{
+  "diagnostic_label": "synthetic robustness diagnostic; not official public metrics",
+  "case_count": 15,
+  "coverage_buckets_percent": [
+    0,
+    5,
+    10,
+    25,
+    100
+  ],
+  "paired_definition": "gained/lost compares per-case reciprocal rank; hit and raw-rank changes are reported separately",
+  "configs": {
+    "control_current_policy": {
+      "metrics": {
+        "sample_count": 15,
+        "hit_rate_at_10": 0.4,
+        "mrr": 0.061746,
+        "mttc": 7.0,
+        "technical_score": 0.298524
+      },
+      "paired_vs_control": {
+        "gained_cases": [],
+        "lost_cases": [],
+        "hit_gained_cases": [],
+        "hit_lost_cases": [],
+        "rank_better_cases": [],
+        "rank_worse_cases": []
+      },
+      "by_price_coverage": {
+        "0%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "5%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "10%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "25%": {
+          "sample_count": 7,
+          "hit_rate_at_10": 0.428571,
+          "mrr": 0.04898,
+          "mttc": 6.714286,
+          "technical_score": 0.314694
+        },
+        "100%": {
+          "sample_count": 4,
+          "hit_rate_at_10": 0.75,
+          "mrr": 0.145833,
+          "mttc": 3.5,
+          "technical_score": 0.56875
+        }
+      }
+    },
+    "mode_aware_default": {
+      "metrics": {
+        "sample_count": 15,
+        "hit_rate_at_10": 0.2,
+        "mrr": 0.038413,
+        "mttc": 9.0,
+        "technical_score": 0.151524
+      },
+      "paired_vs_control": {
+        "gained_cases": [],
+        "lost_cases": [
+          "target_near_cov_100",
+          "target_price_null",
+          "target_outside_band"
+        ],
+        "hit_gained_cases": [],
+        "hit_lost_cases": [
+          "target_near_cov_100",
+          "target_price_null",
+          "target_outside_band"
+        ],
+        "rank_better_cases": [],
+        "rank_worse_cases": [
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_outside_band"
+        ]
+      },
+      "by_price_coverage": {
+        "0%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "5%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "10%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "25%": {
+          "sample_count": 7,
+          "hit_rate_at_10": 0.285714,
+          "mrr": 0.034694,
+          "mttc": 8.142857,
+          "technical_score": 0.210408
+        },
+        "100%": {
+          "sample_count": 4,
+          "hit_rate_at_10": 0.25,
+          "mrr": 0.083333,
+          "mttc": 8.5,
+          "technical_score": 0.2
+        }
+      }
+    },
+    "target_tiering_min_0.00": {
+      "metrics": {
+        "sample_count": 15,
+        "hit_rate_at_10": 0.533333,
+        "mrr": 0.230079,
+        "mttc": 5.666667,
+        "technical_score": 0.442357
+      },
+      "paired_vs_control": {
+        "gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "lost_cases": [
+          "target_outside_band"
+        ],
+        "hit_gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "hit_lost_cases": [
+          "target_outside_band"
+        ],
+        "rank_better_cases": [
+          "target_near_cov_5",
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "rank_worse_cases": [
+          "target_outside_band"
+        ]
+      },
+      "by_price_coverage": {
+        "0%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "5%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "10%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 1.0,
+          "mrr": 1.0,
+          "mttc": 1.0,
+          "technical_score": 1.0
+        },
+        "25%": {
+          "sample_count": 7,
+          "hit_rate_at_10": 0.571429,
+          "mrr": 0.12398,
+          "mttc": 5.285714,
+          "technical_score": 0.437194
+        },
+        "100%": {
+          "sample_count": 4,
+          "hit_rate_at_10": 0.75,
+          "mrr": 0.395833,
+          "mttc": 3.5,
+          "technical_score": 0.64375
+        }
+      }
+    },
+    "target_tiering_min_0.05": {
+      "metrics": {
+        "sample_count": 15,
+        "hit_rate_at_10": 0.533333,
+        "mrr": 0.230079,
+        "mttc": 5.666667,
+        "technical_score": 0.442357
+      },
+      "paired_vs_control": {
+        "gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "lost_cases": [
+          "target_outside_band"
+        ],
+        "hit_gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "hit_lost_cases": [
+          "target_outside_band"
+        ],
+        "rank_better_cases": [
+          "target_near_cov_5",
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "rank_worse_cases": [
+          "target_outside_band"
+        ]
+      },
+      "by_price_coverage": {
+        "0%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "5%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "10%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 1.0,
+          "mrr": 1.0,
+          "mttc": 1.0,
+          "technical_score": 1.0
+        },
+        "25%": {
+          "sample_count": 7,
+          "hit_rate_at_10": 0.571429,
+          "mrr": 0.12398,
+          "mttc": 5.285714,
+          "technical_score": 0.437194
+        },
+        "100%": {
+          "sample_count": 4,
+          "hit_rate_at_10": 0.75,
+          "mrr": 0.395833,
+          "mttc": 3.5,
+          "technical_score": 0.64375
+        }
+      }
+    },
+    "target_tiering_min_0.10": {
+      "metrics": {
+        "sample_count": 15,
+        "hit_rate_at_10": 0.533333,
+        "mrr": 0.230079,
+        "mttc": 5.666667,
+        "technical_score": 0.442357
+      },
+      "paired_vs_control": {
+        "gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "lost_cases": [
+          "target_outside_band"
+        ],
+        "hit_gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "hit_lost_cases": [
+          "target_outside_band"
+        ],
+        "rank_better_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "rank_worse_cases": [
+          "target_outside_band"
+        ]
+      },
+      "by_price_coverage": {
+        "0%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "5%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "10%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 1.0,
+          "mrr": 1.0,
+          "mttc": 1.0,
+          "technical_score": 1.0
+        },
+        "25%": {
+          "sample_count": 7,
+          "hit_rate_at_10": 0.571429,
+          "mrr": 0.12398,
+          "mttc": 5.285714,
+          "technical_score": 0.437194
+        },
+        "100%": {
+          "sample_count": 4,
+          "hit_rate_at_10": 0.75,
+          "mrr": 0.395833,
+          "mttc": 3.5,
+          "technical_score": 0.64375
+        }
+      }
+    },
+    "target_tiering_min_0.25": {
+      "metrics": {
+        "sample_count": 15,
+        "hit_rate_at_10": 0.466667,
+        "mrr": 0.163413,
+        "mttc": 6.333333,
+        "technical_score": 0.37569
+      },
+      "paired_vs_control": {
+        "gained_cases": [
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "lost_cases": [
+          "target_outside_band"
+        ],
+        "hit_gained_cases": [
+          "target_near_cov_25",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "hit_lost_cases": [
+          "target_outside_band"
+        ],
+        "rank_better_cases": [
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "rank_worse_cases": [
+          "target_outside_band"
+        ]
+      },
+      "by_price_coverage": {
+        "0%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "5%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "10%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "25%": {
+          "sample_count": 7,
+          "hit_rate_at_10": 0.571429,
+          "mrr": 0.12398,
+          "mttc": 5.285714,
+          "technical_score": 0.437194
+        },
+        "100%": {
+          "sample_count": 4,
+          "hit_rate_at_10": 0.75,
+          "mrr": 0.395833,
+          "mttc": 3.5,
+          "technical_score": 0.64375
+        }
+      }
+    },
+    "target_distance_min_0.10": {
+      "metrics": {
+        "sample_count": 15,
+        "hit_rate_at_10": 0.533333,
+        "mrr": 0.235635,
+        "mttc": 5.666667,
+        "technical_score": 0.444024
+      },
+      "paired_vs_control": {
+        "gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "lost_cases": [
+          "target_outside_band"
+        ],
+        "hit_gained_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "hit_lost_cases": [
+          "target_outside_band"
+        ],
+        "rank_better_cases": [
+          "target_near_cov_10",
+          "target_near_cov_25",
+          "target_near_cov_100",
+          "target_price_null",
+          "target_near_after_irrelevant_cheap_decoys"
+        ],
+        "rank_worse_cases": [
+          "target_outside_band"
+        ]
+      },
+      "by_price_coverage": {
+        "0%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "5%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 0.0,
+          "mrr": 0.0,
+          "mttc": 11.0,
+          "technical_score": 0.0
+        },
+        "10%": {
+          "sample_count": 1,
+          "hit_rate_at_10": 1.0,
+          "mrr": 1.0,
+          "mttc": 1.0,
+          "technical_score": 1.0
+        },
+        "25%": {
+          "sample_count": 7,
+          "hit_rate_at_10": 0.571429,
+          "mrr": 0.12398,
+          "mttc": 5.285714,
+          "technical_score": 0.437194
+        },
+        "100%": {
+          "sample_count": 4,
+          "hit_rate_at_10": 0.75,
+          "mrr": 0.416667,
+          "mttc": 3.5,
+          "technical_score": 0.65
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "name": "target_near_cov_0",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 0,
+      "target_initial_rank": 12,
+      "target_catalog_price": null,
+      "tags": [
+        "target price",
+        "target price null"
+      ],
+      "ranks": {
+        "control_current_policy": 12,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 12,
+        "target_tiering_min_0.05": 12,
+        "target_tiering_min_0.10": 12,
+        "target_tiering_min_0.25": 12,
+        "target_distance_min_0.10": 12
+      }
+    },
+    {
+      "name": "target_near_cov_5",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 5,
+      "target_initial_rank": 12,
+      "target_catalog_price": null,
+      "tags": [
+        "target price",
+        "low coverage"
+      ],
+      "ranks": {
+        "control_current_policy": 12,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 11,
+        "target_tiering_min_0.05": 11,
+        "target_tiering_min_0.10": 12,
+        "target_tiering_min_0.25": 12,
+        "target_distance_min_0.10": 12
+      }
+    },
+    {
+      "name": "target_near_cov_10",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 10,
+      "target_initial_rank": 12,
+      "target_catalog_price": 50.0,
+      "tags": [
+        "target price",
+        "known relevant"
+      ],
+      "ranks": {
+        "control_current_policy": 12,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 1,
+        "target_tiering_min_0.05": 1,
+        "target_tiering_min_0.10": 1,
+        "target_tiering_min_0.25": 12,
+        "target_distance_min_0.10": 1
+      }
+    },
+    {
+      "name": "target_near_cov_25",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 25,
+      "target_initial_rank": 12,
+      "target_catalog_price": 50.0,
+      "tags": [
+        "target price",
+        "known relevant"
+      ],
+      "ranks": {
+        "control_current_policy": 11,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 2,
+        "target_tiering_min_0.05": 2,
+        "target_tiering_min_0.10": 2,
+        "target_tiering_min_0.25": 2,
+        "target_distance_min_0.10": 2
+      }
+    },
+    {
+      "name": "target_near_cov_100",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 100,
+      "target_initial_rank": 12,
+      "target_catalog_price": 50.0,
+      "tags": [
+        "target price",
+        "known relevant"
+      ],
+      "ranks": {
+        "control_current_policy": 8,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 4,
+        "target_tiering_min_0.05": 4,
+        "target_tiering_min_0.10": 4,
+        "target_tiering_min_0.25": 4,
+        "target_distance_min_0.10": 3
+      }
+    },
+    {
+      "name": "maximum_target_below",
+      "mode": "maximum",
+      "amount": 50.0,
+      "coverage_percent": 25,
+      "target_initial_rank": 12,
+      "target_catalog_price": 40.0,
+      "tags": [
+        "maximum budget",
+        "target below budget"
+      ],
+      "ranks": {
+        "control_current_policy": 11,
+        "mode_aware_default": 11,
+        "target_tiering_min_0.00": 11,
+        "target_tiering_min_0.05": 11,
+        "target_tiering_min_0.10": 11,
+        "target_tiering_min_0.25": 11,
+        "target_distance_min_0.10": 11
+      }
+    },
+    {
+      "name": "maximum_target_near",
+      "mode": "maximum",
+      "amount": 50.0,
+      "coverage_percent": 25,
+      "target_initial_rank": 12,
+      "target_catalog_price": 50.0,
+      "tags": [
+        "maximum budget",
+        "target near requested price"
+      ],
+      "ranks": {
+        "control_current_policy": 11,
+        "mode_aware_default": 11,
+        "target_tiering_min_0.00": 11,
+        "target_tiering_min_0.05": 11,
+        "target_tiering_min_0.10": 11,
+        "target_tiering_min_0.25": 11,
+        "target_distance_min_0.10": 11
+      }
+    },
+    {
+      "name": "maximum_target_above",
+      "mode": "maximum",
+      "amount": 50.0,
+      "coverage_percent": 25,
+      "target_initial_rank": 12,
+      "target_catalog_price": 90.0,
+      "tags": [
+        "maximum budget",
+        "target above budget"
+      ],
+      "ranks": {
+        "control_current_policy": 20,
+        "mode_aware_default": 20,
+        "target_tiering_min_0.00": 20,
+        "target_tiering_min_0.05": 20,
+        "target_tiering_min_0.10": 20,
+        "target_tiering_min_0.25": 20,
+        "target_distance_min_0.10": 20
+      }
+    },
+    {
+      "name": "maximum_target_null",
+      "mode": "maximum",
+      "amount": 50.0,
+      "coverage_percent": 25,
+      "target_initial_rank": 12,
+      "target_catalog_price": null,
+      "tags": [
+        "maximum budget",
+        "target price null",
+        "relevant unknown"
+      ],
+      "ranks": {
+        "control_current_policy": 10,
+        "mode_aware_default": 10,
+        "target_tiering_min_0.00": 10,
+        "target_tiering_min_0.05": 10,
+        "target_tiering_min_0.10": 10,
+        "target_tiering_min_0.25": 10,
+        "target_distance_min_0.10": 10
+      }
+    },
+    {
+      "name": "target_price_null",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 25,
+      "target_initial_rank": 12,
+      "target_catalog_price": null,
+      "tags": [
+        "target price",
+        "target price null",
+        "relevant unknown"
+      ],
+      "ranks": {
+        "control_current_policy": 10,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 8,
+        "target_tiering_min_0.05": 8,
+        "target_tiering_min_0.10": 8,
+        "target_tiering_min_0.25": 8,
+        "target_distance_min_0.10": 8
+      }
+    },
+    {
+      "name": "maximum_known_relevant_after_overages",
+      "mode": "maximum",
+      "amount": 50.0,
+      "coverage_percent": 100,
+      "target_initial_rank": 12,
+      "target_catalog_price": 40.0,
+      "tags": [
+        "maximum budget",
+        "relevant known",
+        "target below budget"
+      ],
+      "ranks": {
+        "control_current_policy": 3,
+        "mode_aware_default": 3,
+        "target_tiering_min_0.00": 3,
+        "target_tiering_min_0.05": 3,
+        "target_tiering_min_0.10": 3,
+        "target_tiering_min_0.25": 3,
+        "target_distance_min_0.10": 3
+      }
+    },
+    {
+      "name": "maximum_unknown_relevant_after_overages",
+      "mode": "maximum",
+      "amount": 50.0,
+      "coverage_percent": 25,
+      "target_initial_rank": 12,
+      "target_catalog_price": null,
+      "tags": [
+        "maximum budget",
+        "relevant unknown"
+      ],
+      "ranks": {
+        "control_current_policy": 7,
+        "mode_aware_default": 7,
+        "target_tiering_min_0.00": 7,
+        "target_tiering_min_0.05": 7,
+        "target_tiering_min_0.10": 7,
+        "target_tiering_min_0.25": 7,
+        "target_distance_min_0.10": 7
+      }
+    },
+    {
+      "name": "target_near_after_irrelevant_cheap_decoys",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 100,
+      "target_initial_rank": 12,
+      "target_catalog_price": 50.0,
+      "tags": [
+        "target price",
+        "irrelevant cheap decoys",
+        "relevant known"
+      ],
+      "ranks": {
+        "control_current_policy": 12,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 1,
+        "target_tiering_min_0.05": 1,
+        "target_tiering_min_0.10": 1,
+        "target_tiering_min_0.25": 1,
+        "target_distance_min_0.10": 1
+      }
+    },
+    {
+      "name": "maximum_unknown_after_irrelevant_cheap_decoys",
+      "mode": "maximum",
+      "amount": 50.0,
+      "coverage_percent": 95,
+      "target_initial_rank": 12,
+      "target_catalog_price": null,
+      "tags": [
+        "maximum budget",
+        "irrelevant cheap decoys",
+        "relevant unknown"
+      ],
+      "ranks": {
+        "control_current_policy": 12,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 12,
+        "target_tiering_min_0.05": 12,
+        "target_tiering_min_0.10": 12,
+        "target_tiering_min_0.25": 12,
+        "target_distance_min_0.10": 12
+      }
+    },
+    {
+      "name": "target_outside_band",
+      "mode": "target",
+      "amount": 50.0,
+      "coverage_percent": 100,
+      "target_initial_rank": 12,
+      "target_catalog_price": 20.0,
+      "tags": [
+        "target price",
+        "target below budget"
+      ],
+      "ranks": {
+        "control_current_policy": 8,
+        "mode_aware_default": 12,
+        "target_tiering_min_0.00": 14,
+        "target_tiering_min_0.05": 14,
+        "target_tiering_min_0.10": 14,
+        "target_tiering_min_0.25": 14,
+        "target_distance_min_0.10": 14
+      }
+    }
+  ]
+}
