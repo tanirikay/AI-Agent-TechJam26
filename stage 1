@@ -44,7 +44,7 @@ class Agent:
         self.connection = sqlite3.connect(":memory:")
         self._sessions: set[str] = set()
         
-        # Schema-compliant state: dictionary-based slot tracking per session
+        # Schema-compliant state management
         self._user_profiles: dict[str, dict] = {}
         self._session_slots: dict[str, dict[str, str]] = {}
         self._asked_attributes: dict[str, set[str]] = {}
@@ -82,13 +82,13 @@ class Agent:
 
     def reset(self, session_id: str, user_profile: dict) -> None:
         self._sessions.add(session_id)
-        # Strict adherence to docs/agent_api_contract.json (only standard user profile fields)
+        # Store profile matching exact schema contract
         self._user_profiles[session_id] = user_profile or {}
         self._session_slots[session_id] = {}
         self._asked_attributes[session_id] = set()
 
     def _extract_and_update_slots(self, session_id: str, message: str) -> None:
-        """Slot-filling extraction with per-slot override handling (no full wipes)."""
+        """Slot-filling extraction with per-slot override handling."""
         tokens = set(_terms(message))
         slots = self._session_slots[session_id]
 
@@ -102,12 +102,23 @@ class Agent:
         if matched_colors:
             slots["color"] = list(matched_colors)[0]
 
-        # Extract Generic Keywords (Store non-slot tokens safely without overwriting structured slots)
+        # Extract Generic Keywords (Store non-slot tokens safely without wiping structured slots)
         generic_tokens = tokens - CATEGORY_MAP - COLOR_MAP
         if generic_tokens:
             existing_keywords = set(slots.get("keywords", "").split())
-            # Update keyword set
             slots["keywords"] = " ".join(existing_keywords.union(generic_tokens))
+
+    def _calculate_user_weight(self, profile: dict) -> float:
+        """Calculates a dynamic scalar weight based on schema-compliant profile metrics."""
+        base_weight = 1.0
+        prior_rating = profile.get("average_prior_rating", 3.0)
+        
+        if prior_rating >= 4.0:
+            base_weight *= 1.25  # High satisfaction profile -> scale up match weights
+        elif prior_rating <= 2.0:
+            base_weight *= 0.8   # Critical reviewer profile -> apply stricter weight base
+
+        return base_weight
 
     def _determine_next_attribute_to_ask(self, session_id: str) -> str | None:
         """Determines missing high-priority attributes to actively prompt the user."""
@@ -142,7 +153,17 @@ class Agent:
         self._extract_and_update_slots(session_id, user_message)
         slots = self._session_slots[session_id]
 
-        # 2. Construct search query strictly from ACTIVE slots (prevents term pollution)
+        # 2. Weight Aggregation from User Profile
+        profile = self._user_profiles.get(session_id, {})
+        user_weight_multiplier = self._calculate_user_weight(profile)
+
+        # Scale BM25 column weights dynamically
+        title_wt = round(10.0 * user_weight_multiplier, 2)
+        category_wt = round(5.0 * user_weight_multiplier, 2)
+        features_wt = round(2.0 * user_weight_multiplier, 2)
+        details_wt = round(1.0 * user_weight_multiplier, 2)
+
+        # 3. Construct search query strictly from ACTIVE slots
         query_parts = []
         if "category" in slots:
             query_parts.append(f'"{slots["category"]}"')
@@ -153,14 +174,13 @@ class Agent:
 
         expression = " AND ".join(query_parts) if query_parts else ""
 
-        # 3. Candidate Retrieval via SQLite FTS5 BM25
+        # 4. Candidate Retrieval via SQLite FTS5 BM25 with Aggregated Weights
         recommendations: list[dict] = []
         if expression:
             try:
-                # Rank heavily on Title and Category fields
-                query = """
+                query = f"""
                     SELECT parent_asin FROM products WHERE products MATCH ? 
-                    ORDER BY bm25(products, 0.0, 10.0, 5.0, 2.0, 1.0, 1.0, 1.0) 
+                    ORDER BY bm25(products, 0.0, {title_wt}, {category_wt}, {features_wt}, {details_wt}, 1.0, 1.0) 
                     LIMIT ?
                 """
                 rows = self.connection.execute(query, (expression, top_k)).fetchall()
@@ -168,8 +188,7 @@ class Agent:
             except sqlite3.OperationalError:
                 pass
 
-        # 4. Active Clarification Disclosure Check (ask_attribute)
-        # Ask for missing attributes in earlier turns to unlock customer responses
+        # 5. Active Clarification Disclosure Check (ask_attribute)
         ask_attribute = None
         if turn < 3 and len(recommendations) < top_k:
             ask_attribute = self._determine_next_attribute_to_ask(session_id)
