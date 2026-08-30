@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 from agent import memory
-from agent.constraint_rerank import rerank_by_exact_constraints
+from agent.constraint_rerank import find_unmatched_constraints, rerank_by_exact_constraints
 from agent.price_rerank import (
     rerank_by_maximum_budget,
     rerank_by_price_constraint,
@@ -26,7 +26,7 @@ from agent.retrieval import (
     retrieve_scored,
     _terms,
 )
-from agent.vocab import BudgetConstraint
+from agent.vocab import BudgetConstraint, extract_negated_values
 
 POOL_THRESHOLD = 15          # candidate pool small enough to just answer
 RETRIEVAL_POOL_SIZE = 200    # how many candidates select_clarification_attribute scores over
@@ -40,6 +40,36 @@ TARGET_PRICE_WINDOW = 40
 # indistinguishable from the point-estimate winner (200) on paired bootstrap.
 # Passing None remains the fully inert, pre-iteration control.
 CONSTRAINT_RERANK_WINDOW = 40
+
+# Iteration 7 (proposed, opt-in, unvalidated on real paraphrase data --
+# there is none locally): docs/competition_specification.md line 40
+# explicitly reserves the organizer's right to add natural-language
+# paraphrasing to the private simulator ("it cannot decide correctness"
+# still holds -- the underlying disclosed FACT stays ground-truth-derived,
+# only the wording might vary). The exact-clause reranker above requires a
+# literal substring match, so a paraphrase that never appears verbatim in
+# any candidate's evidence text would silently score 0 for that clause.
+#
+# This does NOT replace exact matching -- it only adds a capped, tie-break
+# vote for clauses that match ZERO candidates anywhere in the pool
+# (find_unmatched_constraints), using a real sentence embedding scoped to
+# JUST that one clause (never the whole accumulated conversation, which is
+# exactly what made the earlier `embed_rerank_window` hook lose badly --
+# see CLAUDE.md iter 2 Task 4: a whole-conversation vector has no notion of
+# which single fact is the hard constraint). SEMANTIC_FALLBACK_EPSILON is
+# sized so the bonus can never outrank a real exact-match difference: with
+# similarity clipped to [0, 1] and at most ~10 raw clauses possible in a
+# 10-turn session, 10 * 0.05 = 0.5 stays under the smallest possible
+# integer gap (1.0) even in a pathological case.
+#
+# Disabled by default (`semantic_fallback_window=None`); sentence-transformers/
+# torch are only imported if this OR `embed_rerank_window` is set. Provably
+# near-inert on the public 200 by construction: every real disclosure there
+# is a literal catalog quote, so find_unmatched_constraints should rarely
+# return anything outside the 6 already-known BM25-recall-failure sessions.
+# Can only be validated here for "does not regress the public 200" -- there
+# is no local way to confirm it helps with actual paraphrasing.
+SEMANTIC_FALLBACK_EPSILON = 0.05
 
 # evaluator.local_evaluator.customer_reply()'s classify_constraint() can
 # only ever return budget/material/color/size/style/use_case/feature -- it
@@ -139,6 +169,8 @@ class Agent:
         slot_boost_k: int = 0,
         embed_rerank_window: int | None = None,
         constraint_rerank_window: int | None = CONSTRAINT_RERANK_WINDOW,
+        semantic_fallback_window: int | None = None,
+        semantic_fallback_epsilon: float = SEMANTIC_FALLBACK_EPSILON,
         target_price_rerank: bool = False,
         target_price_min_coverage: float = TARGET_PRICE_MIN_COVERAGE,
         target_price_window: int = TARGET_PRICE_WINDOW,
@@ -177,14 +209,19 @@ class Agent:
         # query text. None (default) = disabled and sentence-transformers/
         # torch are never imported (keeps the default agent stdlib+sqlite).
         self.embed_rerank_window = embed_rerank_window
-        self._embed_reranker = None
-        if embed_rerank_window is not None:
-            from agent.embed_rerank import get_shared_reranker
-
-            self._embed_reranker = get_shared_reranker(self.index.products)
         # Iteration 4: deterministic literal constraint satisfaction over a
         # bounded prefix of the BM25+budget pool. None is fully inert.
         self.constraint_rerank_window = constraint_rerank_window
+        # Iteration 7 (proposed): capped semantic tiebreak for clauses that
+        # match nothing anywhere in the pool -- see the module-level comment
+        # above SEMANTIC_FALLBACK_EPSILON. None (default) is fully inert.
+        self.semantic_fallback_window = semantic_fallback_window
+        self.semantic_fallback_epsilon = semantic_fallback_epsilon
+        self._embed_reranker = None
+        if embed_rerank_window is not None or semantic_fallback_window is not None:
+            from agent.embed_rerank import get_shared_reranker
+
+            self._embed_reranker = get_shared_reranker(self.index.products)
         # Disabled by default: A/B tested on the public 200 (see agent.py's
         # git history / the conversation that added this) and every
         # configuration tried -- all 8 slots or just the structured
@@ -268,6 +305,54 @@ class Agent:
         rest = pool_asins[self.slot_match_window :]
         return sorted(window, key=lambda a: -match_count(a)) + rest
 
+    def _matches_excluded(self, asin: str, excluded_values: dict[str, set[str]]) -> bool:
+        """True if this candidate's own attribute value is one a negated
+        clause explicitly ruled out (see extract_negated_values)."""
+        product = self.index.products.get(asin)
+        if product is None:
+            return False
+        return any(
+            memory.get_attribute_value(product, slot_name, self.index.vocabulary) in values
+            for slot_name, values in excluded_values.items()
+        )
+
+    def _apply_negation_exclusion(self, pool_asins: list[str], state: memory.SessionState) -> list[str]:
+        """Deterministically demote candidates matching a value the
+        customer has explicitly negated ("not wool", "unlike leather",
+        "no synthetic fibers").
+
+        Unlike the semantic_fallback_window mechanism, this is ALWAYS ON --
+        no ML, no opt-in flag, same "confirmed violators sink, everyone
+        else stays" partition as _apply_budget_bucketing. It's deterministic
+        exact-vocabulary/category matching (extract_negated_values), which
+        has no failure mode analogous to the embedding's negation weakness
+        (see CLAUDE.md iteration 7) -- there is nothing to "get wrong"
+        beyond the cue list and MATERIAL_CATEGORY_ALIASES simply not
+        recognizing an unanticipated phrasing, in which case this is
+        correctly a no-op, not a wrong guess.
+
+        Scans every ACTIVE raw constraint disclosed so far, not just the
+        current turn's message -- a negation stated on turn 2 should keep
+        demoting matching candidates for the rest of the session.
+        """
+        excluded_values: dict[str, set[str]] = {}
+        for constraint in memory.get_active_raw_constraints(state):
+            for slot_name, values in extract_negated_values(
+                constraint.original_text, self.index.vocabulary
+            ).items():
+                excluded_values.setdefault(slot_name, set()).update(values)
+        if not excluded_values:
+            return pool_asins
+
+        within: list[str] = []
+        excluded: list[str] = []
+        for asin in pool_asins:
+            if self._matches_excluded(asin, excluded_values):
+                excluded.append(asin)
+            else:
+                within.append(asin)
+        return within + excluded
+
     def _apply_budget_bucketing(self, pool_asins: list[str], budget: float) -> list[str]:
         """Reorder candidates so confirmed-over-budget items sink, without
         ever penalizing a product whose price is simply unknown (~79% of the
@@ -338,12 +423,52 @@ class Agent:
             target_distance_sort=self.target_price_distance_sort,
         )
 
+        # Always on, no flag, no ML -- see _apply_negation_exclusion's
+        # docstring for why this is safe to run unconditionally where the
+        # embedding-based semantic_fallback_window is deliberately not.
+        pool_asins = self._apply_negation_exclusion(pool_asins, state)
+
         if self.constraint_rerank_window is not None:
+            active_constraints = memory.get_active_raw_constraints(state)
+            semantic_bonus: dict[str, float] | None = None
+            if self.semantic_fallback_window is not None and self._embed_reranker is not None:
+                unmatched = find_unmatched_constraints(
+                    pool_asins, self.index.normalized_evidence, active_constraints
+                )
+                if unmatched:
+                    window_asins = pool_asins[: self.semantic_fallback_window]
+                    semantic_bonus = {}
+                    for constraint in unmatched:
+                        # Deterministic negation exclusion runs BEFORE the
+                        # embedding: pooled sentence embeddings demonstrably
+                        # cannot handle negation ("not wool" still favors
+                        # wool -- see CLAUDE.md iteration 7). A candidate
+                        # that literally matches an excluded value gets no
+                        # bonus from this clause at all, never a penalty --
+                        # it simply doesn't receive the vote the embedding
+                        # would otherwise have given it, which is what
+                        # actually fixed the demonstrated failure case.
+                        excluded_values = extract_negated_values(
+                            constraint.original_text, self.index.vocabulary
+                        )
+                        candidates = window_asins
+                        if excluded_values:
+                            candidates = [
+                                asin for asin in window_asins
+                                if not self._matches_excluded(asin, excluded_values)
+                            ]
+                        sims = self._embed_reranker.similarity(candidates, constraint.original_text)
+                        for asin, sim in sims.items():
+                            semantic_bonus[asin] = (
+                                semantic_bonus.get(asin, 0.0)
+                                + self.semantic_fallback_epsilon * max(0.0, sim)
+                            )
             pool_asins = rerank_by_exact_constraints(
                 pool_asins,
                 self.index.normalized_evidence,
-                memory.get_active_raw_constraints(state),
+                active_constraints,
                 self.constraint_rerank_window,
+                bonus=semantic_bonus,
             )
 
         pool_asins = self._slot_match_rerank(pool_asins, state)

@@ -68,13 +68,49 @@ def evidence_score(evidence: str, constraints: Iterable[RawConstraintLike]) -> i
     return sum(clause in evidence for clause in active_clauses)
 
 
+def find_unmatched_constraints(
+    pool_asins: Iterable[str],
+    normalized_evidence: dict[str, str],
+    constraints: Iterable[RawConstraintLike],
+) -> list[RawConstraintLike]:
+    """Active constraints that appear in ZERO candidates across the pool.
+
+    Checked against the whole pool passed in, not a rerank window -- a
+    clause missing from the top 40 but present at rank 120 is a ranking
+    question the exact-match reranker already answers correctly, not a
+    genuine gap. Only a clause absent everywhere is a candidate for the
+    semantic fallback (e.g. the customer paraphrased "waterproof" as
+    "keeps you dry in the rain", and no product's evidence text contains
+    that literal phrase anywhere).
+    """
+    active = [c for c in constraints if c.active and c.normalized_text]
+    if not active:
+        return []
+    pool = list(pool_asins)
+    return [
+        constraint
+        for constraint in active
+        if not any(constraint.normalized_text in normalized_evidence.get(asin, "") for asin in pool)
+    ]
+
+
 def rerank_by_exact_constraints(
     pool_asins: list[str],
     normalized_evidence: dict[str, str],
     constraints: Iterable[RawConstraintLike],
     window: int,
+    bonus: dict[str, float] | None = None,
 ) -> list[str]:
-    """Stably rerank the first ``window`` candidates by exact-clause count."""
+    """Stably rerank the first ``window`` candidates by exact-clause count.
+
+    `bonus` (optional) adds a per-asin float on top of the integer
+    exact-match count before sorting -- used by the semantic fallback to
+    give unmatched clauses a capped tiebreak vote. It must never be large
+    enough to outrank a real exact-match difference; that guarantee is the
+    caller's responsibility (see Agent.SEMANTIC_FALLBACK_EPSILON), not
+    enforced here. `None` (default) reproduces the pre-fallback behaviour
+    exactly.
+    """
 
     if window <= 0 or not pool_asins:
         return list(pool_asins)
@@ -84,16 +120,18 @@ def rerank_by_exact_constraints(
         for constraint in constraints
         if constraint.active and constraint.normalized_text
     )
-    if not active_constraints:
+    if not active_constraints and not bonus:
         return list(pool_asins)
 
     window_size = min(window, len(pool_asins))
     head = pool_asins[:window_size]
     tail = pool_asins[window_size:]
+    bonus = bonus or {}
     ranked_head = sorted(
         head,
-        key=lambda asin: -evidence_score(
-            normalized_evidence.get(asin, ""), active_constraints
+        key=lambda asin: -(
+            evidence_score(normalized_evidence.get(asin, ""), active_constraints)
+            + bonus.get(asin, 0.0)
         ),
     )
     return ranked_head + tail

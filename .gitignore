@@ -4,3 +4,5 @@ results.json
 __pycache__/
 *.pyc
 .venv/
+.embed_cache/
+.embed_cache_test/

@@ -43,7 +43,9 @@ runs the untouched weak-BM25 starter for comparison.
 | This agent (pre-iter 4, `preference_tag_bonus=1.5`) | 0.795 | 0.5076 | 4.620 | 0.6774 |
 | This agent (post-iter 4, exact window 40) | 0.915 | 0.6296 | 3.595 | 0.7945 |
 | This agent (iter 5, field-scope widening) | 0.915 | 0.6325 | 3.645 | 0.794348 |
-| **This agent (current, iter 6 budget exclusion + ask fallback tier)** | **0.920** | **0.631383** | **3.635** | **0.796715** |
+| This agent (iter 6, budget exclusion + ask fallback tier) | 0.920 | 0.631383 | 3.635 | 0.796715 |
+| This agent (iter 9, first vocab expansion pass) | 0.925 | 0.625478 | 3.505 | 0.800043 |
+| **This agent (current, iter 9b larger vocab expansion)** | **0.925** | **0.634478** | **3.530** | **0.802243** |
 
 Per scenario (post-iter 4): buying 0.9375 / browsing 0.9375 / intent_override
 0.8667 / boundary 0.700 hit rate. Iteration 4 improved every scenario over
@@ -967,3 +969,415 @@ byte-identical: control, new default at `PYTHONHASHSEED=1`, and new default at
 Metrics remain HR@10 **0.920**, MRR **0.631383**, MTTC **3.635**, and
 TechnicalScore **0.796715**. Target pricing remains opt-in until genuine
 budget-bearing sessions provide evidence.
+
+## Iteration 7 — constraint-rerank semantic fallback for paraphrasing — IMPLEMENTED, NOT RECOMMENDED FOR USE YET (2026-08-31)
+
+Motivated by `docs/competition_specification.md:40`, which explicitly
+reserves the organizer's right to add natural-language paraphrasing to the
+private simulator: "If natural-language paraphrasing is added by the
+organizer, it cannot decide correctness. Hits are always exact code
+matches." The underlying disclosed fact stays ground-truth-derived either
+way (only wording might vary), so `rerank_by_exact_constraints` — which
+requires a literal substring match — is the one mechanism in this pipeline
+that a paraphrase could silently defeat: a clause that never appears
+verbatim in any candidate's evidence text contributes 0 to every candidate,
+even the true target.
+
+### Design
+
+Deliberately NOT a repeat of the rejected `embed_rerank_window` hook (iter 2
+Task 4, whole-conversation embedding vs. whole pool — lost badly, every
+window size, because a pooled multi-turn vector has no notion of which
+single fact is the hard constraint). This scopes the embedding to exactly
+one disclosed clause at a time, and only as a tiebreak:
+
+- `constraint_rerank.find_unmatched_constraints(pool_asins, evidence, constraints)`
+  — active clauses that match ZERO candidates across the WHOLE pool (not
+  just the rerank window, so window truncation can't produce a false
+  "unmatched"). Pure function, no ML dependency.
+- `rerank_by_exact_constraints(..., bonus: dict[str, float] | None)` — new
+  optional parameter, added on top of the integer `evidence_score` before
+  sorting. `None` (default) reproduces prior behaviour exactly.
+- `EmbeddingReranker.similarity(asins, text)` (`embed_rerank.py`) — cosine
+  similarity between arbitrary text and cached per-product embeddings.
+  Reuses the existing model/cache; no new embedding infrastructure.
+- `Agent(semantic_fallback_window=None)` — new opt-in flag, same pattern as
+  every other experimental knob here. When set, for each unmatched clause,
+  `similarity()` is computed against the top `semantic_fallback_window`
+  candidates, clipped to `[0, 1]` (negative/dissimilar contributes nothing,
+  never penalizes), scaled by `SEMANTIC_FALLBACK_EPSILON = 0.05`, and
+  summed per-asin into `bonus`. Bound: `0.05 * 10 = 0.5 < 1.0`, so even a
+  pathological 10-unmatched-clause session cannot let the bonus outrank a
+  real one-clause exact-match difference.
+- `sentence-transformers`/`torch` are only imported if `semantic_fallback_window`
+  OR `embed_rerank_window` is set — default agent is unaffected either way.
+
+### Regression check: clean
+
+Default (`semantic_fallback_window=None`) reproduces iteration 6 exactly —
+byte-identical `results_memory_agent.json`, HR@10 0.920 / MRR 0.631383 /
+MTTC 3.635 / TS 0.796715. All 47 tests pass (35 pre-existing +
+`tests/test_constraint_rerank.py`'s new pure-logic tests for
+`find_unmatched_constraints` and the `bonus` parameter, which need no ML
+dependency and always run).
+
+### The actual finding: a real, reproducible negation weakness — this is why it's not recommended yet
+
+There is zero paraphrased text anywhere in the public 200 or the shipped
+evaluator, so this can never be validated for the thing it's meant to
+catch — only stress-tested against a hand-built synthetic scenario. Built
+one: `tests/test_semantic_fallback_integration.py`, a 3-product synthetic
+catalog (hiking boot / cotton shirt / wool sweater) with paraphrased
+clauses that share zero literal vocabulary with any product's evidence,
+using the real `all-MiniLM-L6-v2` model (installed for this test; not part
+of the default agent's dependencies).
+
+Results were genuinely mixed, not a clean win:
+
+- **Positive-phrasing paraphrases work correctly.** "keeps your feet dry
+  when it's raining" → boot ranked first. "soft and breathable, great for
+  everyday casual wear" → shirt ranked first.
+- **Negation-based paraphrases fail, reproducibly.** "made from a soft
+  breathable natural fabric, not wool or synthetic" ranks the WOOL sweater
+  (0.476 similarity) above the COTTON shirt (0.367) — the literal word
+  "wool" in the clause pulls the embedding toward wool-adjacent products
+  regardless of the negation. Re-tested with a phrasing that never says
+  "wool" at all — "made of a plant-based natural material, not an animal
+  fiber" — and the wool sweater STILL wins (0.217 vs. shirt's 0.168). This
+  is a well-documented general weakness of pooled/averaged sentence
+  embeddings, not a bug specific to this implementation or MiniLM.
+- This matters more than "sometimes doesn't help": in the all-exact-zero
+  regime (the only regime the epsilon bound allows it to act in), a wrong
+  semantic bonus can **actively demote** a candidate that BM25's own
+  literal term overlap (the raw clause text is already in the BM25 query
+  regardless of this mechanism) might have ranked closer to correctly. The
+  epsilon bound only proves this can't beat a real exact match — it says
+  nothing about whether the tiebreak itself is a good guess, and directly
+  testing it found real cases where it isn't.
+
+Kept as a documented `KNOWN_LIMITATION` test (asserts the current, actually
+observed wrong-answer behaviour, not the hoped-for one) rather than deleted
+or quietly reworded to pass — if this is ever mitigated, the test should be
+updated to reflect the fix, not removed.
+
+Original verdict (superseded below): implemented and regression-safe, but
+`semantic_fallback_window` should stay disabled pending a negation fix.
+
+## Iteration 7 follow-up — deterministic negation exclusion — IMPLEMENTED, verdict updated (2026-08-31)
+
+Directly addresses the gap above. Considered and rejected an LLM-based
+negation interpreter first: the target space (which material is being
+ruled out) is a closed ~19-value catalog vocabulary, not open-ended
+language, so an LLM's main advantage (generalizing across unbounded
+phrasing) buys little here while adding real cost — network dependency at
+inference time (conflicts with the offline-fallback requirement unless a
+local model is used, which then carries weight/latency for a lookup
+problem), hallucination risk with no local paraphrase data to validate
+against (same unvalidatable-benefit problem the embedding fallback already
+has, compounded), and non-reproducibility (a model update between dev and
+grading could silently change behavior — directly at odds with this
+project's byte-identical-run verification discipline used everywhere
+else). A closed dictionary is the right-sized tool for a closed problem.
+
+### Design
+
+- `vocab.MATERIAL_CATEGORY_ALIASES` — small hand-curated table grouping
+  MATERIAL_VOCAB's canonical values into coarser categories that clothing/
+  shoe/jewelry negations actually use: `animal`/`animal fiber`/
+  `animal-derived` → {wool, silk, cashmere, leather, suede}; `synthetic`/
+  `man-made` → {polyester, nylon, spandex, rayon, mesh}; `metal`/`metallic`
+  → {stainless steel, sterling silver, gold plated}. Same closed,
+  incomplete-by-construction discipline as every other hand-curated table
+  in `vocab.py` — an unanticipated category phrasing still falls through.
+- `vocab._NEGATION_CUE_RE` — small reviewed cue list (`not`, `isn't`,
+  `unlike`, `instead of`, `rather than`, `other than`), same discipline as
+  `CONTRADICTION_CUES`/`NO_PREFERENCE_CUES`.
+- `vocab._match_vocab_all()` — new helper distinct from the existing
+  `_match_vocab()`. Found and fixed a real bug while building this: a
+  negated span listing multiple values ("not wool or leather") only
+  captured the first, because `_match_vocab` (used by `extract()`, which
+  fills a single-valued slot) deliberately stops at the first match. The
+  negation case needs every excluded value, not one.
+- `vocab.extract_negated_values(text, vocabulary)` — the public entry
+  point. Finds a negation cue, takes the span after it (stopped at the
+  next clause boundary so "not wool, but soft" doesn't also exclude
+  "soft"), and returns every canonical value it rules out via literal
+  vocabulary terms AND the category-alias table. Deterministic, no ML.
+- `Agent._matches_excluded()` — wired into the semantic-fallback bonus
+  loop in `respond()`. For each unmatched clause, negated values are
+  computed first; any candidate whose own attribute value matches one is
+  excluded from receiving a similarity score for that clause at all — not
+  penalized, simply given no vote, which is what actually fixes the
+  ordering (the correct candidate's positive bonus then wins on its own).
+
+### Verified against both previously-failing cases, not just the easy one
+
+`tests/test_semantic_fallback_integration.py`, using the real model:
+
+| clause | raw embedding (no exclusion) | with exclusion (actual `respond()` path) |
+|---|---|---|
+| "not wool or synthetic" | sweater wins (wrong) | shirt wins (correct) |
+| "not an animal fiber" (never says "wool") | sweater wins (wrong) | shirt wins (correct) |
+
+The second case only works because of `MATERIAL_CATEGORY_ALIASES` — there
+is no literal vocabulary term to match "animal fiber" against, so the
+literal-term half of this fix alone would not have solved it. The old
+`KNOWN_LIMITATION` test is kept, renamed to
+`test_RAW_EMBEDDING_negation_weakness_without_the_exclusion_layer`, and
+still asserts the raw failure — it now documents *why* the exclusion layer
+is necessary rather than an open problem.
+
+Pure-logic coverage (no ML, always runs) in
+`tests/test_constraint_rerank.py::NegationExclusionTest` — 5 tests
+including the multi-value-capture bug fix and the clause-boundary
+stopping rule. Regression check: default agent
+(`semantic_fallback_window=None`) unaffected — this fix only changes
+behavior inside a code path that's already disabled by default.
+
+### Verdict (updated): still not recommended to enable in the submitted agent
+
+This closes the specific gap that was found, on the specific synthetic
+cases tested. It does not close the general problem. `_NEGATION_CUE_RE`
+and `MATERIAL_CATEGORY_ALIASES` are both closed, reviewed lists — a
+negation phrased with a cue word not in the list, or a category not in the
+alias table (color, style, and use_case have no alias table at all yet),
+still reaches the embedding uncorrected and can still fail exactly as
+before. This is a real reduction in the risk surface, not a closure of it.
+Given there is still no local paraphrased data of any kind to measure
+actual private-set benefit against, `semantic_fallback_window` should stay
+disabled in the submitted configuration; this work makes enabling it later
+a smaller bet than it was, not a safe one.
+
+## Iteration 8 — negation exclusion promoted to always-on, no flag — ADOPTED (2026-08-31)
+
+Correcting a real design mistake in iteration 7: `extract_negated_values`
+was only ever called from inside the `semantic_fallback_window` opt-in
+path, so it inherited that feature's off-by-default gate for no good
+reason -- negation detection itself needs no ML and has no failure mode
+analogous to the embedding's negation weakness. Requiring the (still not
+recommended) embedding feature to be switched on was accidentally throwing
+away a clean, safe, always-correct mechanism along with a risky one.
+
+### Change
+
+`Agent._apply_negation_exclusion(pool_asins, state)` -- new pipeline
+stage, unconditional, no constructor flag, no ML import. Runs right after
+budget/price reranking and before `constraint_rerank_window`. Scans every
+ACTIVE raw constraint accumulated so far in the session (not just the
+current turn), computes excluded values via `extract_negated_values`, and
+partitions the pool exactly like `_apply_budget_bucketing`: confirmed
+matches to an excluded value sink to the bottom, in stable order;
+everything else (including anything with an unknown/unrecognized value)
+is left untouched. No embedding involved anywhere in this path.
+
+Also expanded both tables this change depends on, since a bigger surface
+is now always live rather than gated behind an experimental flag:
+
+- `MATERIAL_CATEGORY_ALIASES`: now covers all four natural groupings over
+  the 19-material vocabulary -- animal-derived, synthetic/man-made,
+  plant-based, and metal -- plus more phrasings per group (`animal
+  product(s)`, `animal-based`, `synthetic fiber(s)`, `manmade`,
+  `plant fiber(s)`, `vegetable fiber`, `natural fiber(s)`/`natural
+  material(s)` as the deliberate union of plant + animal, matching common
+  usage where "natural" means "not synthetic").
+- `_NEGATION_CUE_RE`: added `never`, `none of`, the negative contractions
+  (`aren't`, `wasn't`, `doesn't`, `don't`, `won't`, `can't`, `cannot`),
+  `without`, and the remaining contrast prepositions (`except`,
+  `excluding`, `besides`, `apart from`, `aside from`, `as opposed to`, `in
+  place of`). Bare `no` deliberately excluded -- too common in ordinary
+  text ("no problem"), collides with `contains_no_preference()`'s own "no
+  preference" handling, and unlike every other cue here isn't reliably
+  followed by the thing being ruled out. Verified `"no problem with any
+  color"` does not false-trigger.
+
+### Regression check: the strongest possible result
+
+Not just "no hit-to-miss regressions" -- the negation cue was measured to
+fire **0/656 times** across every message in all 200 public sessions, all
+10 turns, every scenario. `results_memory_agent.json` is byte-identical to
+the pre-iteration-8 baseline, session-for-session, not just in the
+aggregate metrics. This isn't "triggered but harmless" -- it never
+triggers at all on any data available locally, which is the expected
+result given every public disclosure is either fixed boilerplate or a
+literal catalog quote and none of the 200 targets' quoted text happens to
+contain a negation cue. All 54 tests still pass.
+
+### What this means for the private 800
+
+Because this is unconditional, it is now live for every session in the
+submitted agent by construction -- no configuration step, no flag anyone
+has to remember to set, unlike `semantic_fallback_window` (which stays
+off; see iteration 7). If the private 800 contains negation anywhere --
+whether from added paraphrasing (`docs/competition_specification.md:40`)
+or simply from literal catalog care-instruction text that happens to say
+"not machine washable" or similar -- this now has a chance to help,
+automatically, with zero cost on every session where it doesn't apply
+(confirmed above: cost is exactly zero on all 200 observable sessions).
+Same caveat as always: `_NEGATION_CUE_RE` and `MATERIAL_CATEGORY_ALIASES`
+are closed, reviewed lists, not general negation understanding -- an
+unanticipated cue word or an uncategorized material still passes through
+unexamined, correctly falling back to whatever the rest of the pipeline
+would have done anyway.
+
+One more scoping fact surfaced while writing
+`tests/test_constraint_rerank.py::AlwaysOnNegationExclusionTest`: this
+only ever sees text that already became a `RawConstraint`, and
+`_extract_raw_constraints` is itself pattern-gated (the opening "looking
+for" clause, a `key requirement is:`/`what matters is:`/`what I need is:`
+disclosure, an override payload, or the colon/pending-ask fallback) -- an
+arbitrary free sentence with none of those shapes never enters raw memory
+at all, so negation inside it is invisible regardless of the cue list.
+This isn't a new gap specific to negation; it's the existing raw-constraint
+capture boundary this feature inherits. In practice this isn't very
+limiting, since exactly the shapes that DO get captured are the ones a
+paraphrasing customer_reply() would use.
+
+## Iteration 9 — synonym coverage expansion across all six controlled vocabularies — ADOPTED (2026-08-31)
+
+Direct extension of iteration 5's field-scope finding: with product-side
+extraction now searching more text, the controlled vocabulary itself was
+still the same size as the original design. Expanded `COLOR_VOCAB`,
+`MATERIAL_VOCAB`, `SIZE_VOCAB`, `STYLE_VOCAB`, `USE_CASE_VOCAB`, and
+`FEATURE_VOCAB` with a substantial batch of additional synonyms and a
+handful of new canonical values (`fitted`, `cropped`, `cycling`, `golf`,
+`tennis`, `padded`, `arch support`, `uv protection`, `wrinkle-free`,
+`reversible`) — all still the same closed, hand-curated, no-ML pattern
+already established, no `_contains_term` substring risk since none of
+these are catalog-derived brand/category terms.
+
+Checked for internal collisions before adopting (same discipline as the
+`fabric` incident): scanned for any surface form mapping to two different
+canonical values within the same vocab dict. None found. Deliberate,
+verified-safe overlaps exist by design, exactly like the original
+`"khaki green"` (green) vs. a new bare `"khaki"` (beige) -- phrase-first,
+longest-match ordering in `_match_vocab`/`_match_vocab_all` already
+resolves these correctly (a literal "khaki green" matches the 2-word
+phrase before ever falling to the bare 1-word "khaki" token), so no new
+mechanism was needed. Same pattern covers the new `"rose gold"` (gold) vs.
+existing `"rose"` (pink).
+
+### Regression check: given the `fabric` precedent, checked thoroughly, not just the aggregate
+
+This expansion is far larger than the single `fabric` addition that broke
+a session in iteration 5 (dozens of new terms across all six vocabularies,
+several brand-new canonical values), so the aggregate result alone was not
+treated as sufficient evidence -- full session-level diff required, same
+as every other change in this file.
+
+| | HitRate@10 | MRR | MTTC | TechnicalScore | hit→miss |
+|---|---|---|---|---|---|
+| iteration 6 (control) | 0.920 | 0.631383 | 3.635 | 0.796715 | — |
+| **iteration 9 (adopted)** | **0.925** | **0.625478** | **3.505** | **0.800043** | **0** |
+
+Zero hit-to-miss regressions; one clean miss→hit (`public_0074`,
+browsing). 27 rank/turn changes among sessions that were already hits,
+in both directions (e.g. `public_0055` rank 10→1; `public_0059` rank
+1→7) -- net effect is a small MRR give-back (0.6314→0.6255) more than
+offset by HR@10 and MTTC gains, landing TS above 0.80 for the first time.
+No scenario's HR@10 regressed (boundary 0.700, buying 0.9375,
+intent_override 0.8667 all unchanged; browsing improved 0.95→0.9625). All
+58 tests pass.
+
+### The `I'm`→size `m` question, raised alongside this change: correctly left alone
+
+Also asked whether `TOKEN_RE`'s failure to treat the apostrophe as a token
+character (`"I'm"` → `["i", "m"]`, `"m"` spuriously matching `SIZE_VOCAB`)
+should be fixed. It should not -- this is not a new finding, it's the
+exact case iteration 2's Task 3 already tested and rejected (see "iter 2"
+above): blocking bare 1-char size tokens lost 0.795→0.780 on both split
+halves, because the spurious fill's side effect (making `size`
+non-askable) is net-positive against a slot that yields a real disclosure
+only ~4.5% of the time. `test_historical_im_to_size_m_behavior_is_unchanged`
+in `tests/test_constraint_rerank.py` exists specifically to guard against
+re-fixing this without re-checking the score.
+
+## Iteration 9b — larger vocab expansion, with a pre-emptive collision audit — ADOPTED (2026-08-31)
+
+A second, substantially larger round of the same idea (more synonyms per
+canonical value across all six vocabs, several new canonical values).
+Given the scale, checked the proposal for internal problems BEFORE
+implementing, not just after via the regression suite -- programmatically
+scanned for any surface form claimed by two different canonical values in
+the same dict, and manually reviewed short/common-word entries against
+the established false-positive pattern (brand `_contains_term`, `fabric`).
+
+Found and fixed four real issues before adopting, not hypothetical ones:
+
+1. **Genuine collision**: `"silk satin"` was proposed as a synonym under
+   BOTH `silk` and `satin` in `MATERIAL_VOCAB`. Unlike the "khaki" vs.
+   "khaki green" pattern (different strings, resolved by phrase-priority),
+   this is the identical string claimed twice -- `_build_lookup` would
+   silently resolve it to whichever canonical is processed last, hiding
+   the ambiguity rather than resolving it correctly. Left unregistered as
+   a phrase; single-token matching still resolves "silk satin" to `silk`
+   deterministically (first matching token), which is an acceptable
+   outcome for an inherently ambiguous fiber+weave description.
+2. **Demonstrated (not hypothetical) false positive within the same
+   batch**: `"multi"` was proposed as a bare `multicolor` synonym, and
+   `"multi-pocket"` was separately proposed as a `pockets` synonym in
+   `FEATURE_VOCAB`. `TOKEN_RE` doesn't treat `-` as a token character, so
+   "multi-pocket" tokenizes as `["multi", "pocket"]` -- meaning any
+   mention of a multi-pocket feature would also spuriously fill
+   `color=multicolor`. Caught by cross-checking the proposal against
+   itself, not by running the evaluator. Excluded.
+3. **`"natural"` as a beige synonym**: excluded. Same risk class as the
+   brand `_contains_term` bug and the `fabric`/entropy-scoring incident --
+   an extremely common word in unrelated retail copy ("natural fiber",
+   "all-natural").
+4. **`"ew"` as a wide-width synonym**: excluded. Common informal
+   interjection. `"ee"` (a real US shoe-width designation, much less
+   likely to appear as ordinary text) was kept.
+
+### Regression check: the cleanest result of any iteration so far
+
+| | HitRate@10 | MRR | MTTC | TechnicalScore | hit→miss | miss→hit |
+|---|---|---|---|---|---|---|
+| iteration 9 (control) | 0.925 | 0.625478 | 3.505 | 0.800043 | — | — |
+| **iteration 9b (adopted)** | **0.925** | **0.634478** | **3.530** | **0.802243** | **0** | **0** |
+
+Not merely zero hit-to-miss -- **zero sessions changed hit/miss status in
+either direction**, and every scenario's HitRate@10 is bit-for-bit
+unchanged (boundary 0.700, browsing 0.9625, buying 0.9375,
+intent_override 0.8667). The entire TS gain is rank/turn quality
+improvement among sessions that were already hits. All 58 tests pass.
+
+This is the strongest form of evidence available short of a private-set
+result: a large expansion, pre-screened for the specific failure modes
+already known from this file's history, landing with literally no
+change to which sessions succeed or fail -- only how well they succeed.
+
+## Iteration 9c — NO_PREFERENCE_CUES expansion — ADOPTED (2026-08-31)
+
+Same synonym-coverage idea applied to `contains_no_preference()`'s cue
+list. Worth flagging that this function uses a DIFFERENT, riskier matching
+mechanism than every other lookup in this file: plain Python substring
+containment (`cue in text`), not the word-boundary-checked `_contains_term`
+or token-exact `_match_vocab`. Checked the proposal against that specific
+risk before adopting, same discipline as 9b.
+
+Found and excluded two real, demonstrated collisions (confirmed by direct
+test, not inspection): bare `"any"` matches inside `"many"` (`"any" in
+"how many colors"` -> `True`), and bare `"either"` matches inside
+`"neither"`. Both are the same false-positive shape as the brand
+`_contains_term` bug this file already documents, arguably worse here
+since there's no word-boundary protection at all to catch it. Also
+excluded bare `"anything"` as unnecessary given the safer qualified
+phrasings ("anything is fine", "anything works") already cover the same
+intent. Everything else adopted as proposed -- the remaining entries are
+long/distinctive enough (multi-word phrases, slang, typos) that substring
+collision risk is negligible.
+
+Blast radius of a false positive here is already structurally bounded
+regardless: `contains_no_preference` is only consulted when
+`state.pending_ask` is set (mid-reply to a specific clarifying question,
+not arbitrary text), and `update_state`'s Step D.5 marks a slot exhausted
+after one round-trip regardless of whether the cue list catches the
+phrasing. The `any`/`either` fixes were still worth making given how cheap
+they were and how common the collision words are.
+
+Regression check: `results_memory_agent.json` byte-identical to iteration
+9b, all 58 tests pass -- the public 200's boilerplate no-preference
+phrasing is already fully covered by the pre-existing base cues, so this
+is pure forward-looking insurance with zero cost on any data available
+locally, same profile as iteration 6's brand/category/budget fallback
+tier and iteration 8's negation exclusion.

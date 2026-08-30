@@ -111,6 +111,29 @@ class EmbeddingReranker:
 
         self._row_of = {a: i for i, a in enumerate(self.asin_order)}
 
+    def similarity(self, asins: list[str], text: str) -> dict[str, float]:
+        """Cosine similarity between `text` and each listed product's cached
+        embedding. Products missing from the cache are simply omitted from
+        the result (caller treats that as "no signal", not zero).
+
+        Distinct from `rerank()`: this scores arbitrary text (e.g. one raw
+        disclosed clause) against a candidate set, without reordering
+        anything itself -- used by the constraint-rerank semantic fallback
+        to score a single lost clause, not the whole accumulated
+        conversation, which is precisely what made the whole-pool
+        `rerank()` hook lose badly (see CLAUDE.md iter 2 Task 4).
+        """
+        if self.matrix is None or not text.strip():
+            return {}
+        model = self._get_model()
+        q = model.encode([text], convert_to_numpy=True, normalize_embeddings=True)[0].astype(np.float32)
+        result: dict[str, float] = {}
+        for asin in asins:
+            row = self._row_of.get(asin)
+            if row is not None:
+                result[asin] = float(self.matrix[row] @ q)
+        return result
+
     def rerank(self, pool_asins: list[str], query_text: str, window: int | None) -> list[str]:
         """Reorder the first `window` of pool_asins by cosine similarity to
         query_text; leave the tail untouched and appended. window=None

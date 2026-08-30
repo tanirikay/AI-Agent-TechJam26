@@ -34,122 +34,329 @@ class BudgetConstraint:
 # is always an accepted surface form and does not need to be repeated.
 
 COLOR_VOCAB: dict[str, set[str]] = {
-    "black": set(),
-    "white": set(),
-    "blue": {"navy", "navy blue", "royal blue", "sky blue"},
-    "red": {"maroon", "burgundy", "crimson"},
-    "pink": {"rose", "fuchsia", "magenta"},
-    "green": {"olive", "khaki green", "sage"},
-    "brown": {"tan", "camel", "chocolate", "coffee"},
-    "gray": {"grey", "charcoal", "heather gray", "heather grey"},
-    "purple": {"lavender", "violet", "plum"},
-    "yellow": {"mustard"},
-    "orange": set(),
-    "beige": {"cream", "ivory", "nude"},
-    "silver": set(),
-    "gold": set(),
-    "multicolor": {"multi-color", "multicolored", "print", "patterned"},
+    "black": {"jet black", "onyx black", "pitch black", "obsidian", "midnight black", "ebony", "coal black", "ink black"},
+    "white": {"pure white", "snow white", "bright white", "chalk white", "off-white", "milk white"},
+    "blue": {"navy", "navy blue", "royal blue", "sky blue", "cobalt", "cerulean", "teal blue", "indigo", "sapphire", "denim blue", "baby blue", "powder blue", "midnight blue", "azure"},
+    "red": {"maroon", "burgundy", "crimson", "scarlet", "wine", "brick red", "ruby", "cherry red", "blood red", "rust red", "vermilion"},
+    "pink": {"rose", "fuchsia", "magenta", "salmon", "coral pink", "blush", "hot pink", "baby pink", "dusty rose", "carnation", "bubblegum"},
+    "green": {"olive", "khaki green", "sage", "emerald", "forest green", "hunter green", "mint", "lime", "moss green", "army green", "seafoam", "jade", "pine green", "pistachio"},
+    "brown": {"tan", "camel", "chocolate", "coffee", "mocha", "walnut", "cognac", "chestnut", "espresso", "tawny", "hazel", "caramel", "cacao", "copper", "mahogany"},
+    "gray": {"grey", "charcoal", "heather gray", "heather grey", "slate", "smoke", "gunmetal", "ash", "ash gray", "ash grey", "stone gray", "granite", "silver gray"},
+    "purple": {"lavender", "violet", "plum", "mauve", "orchid", "eggplant", "lilac", "amethyst", "grape", "mulberry", "periwinkle"},
+    "yellow": {"mustard", "lemon", "canary", "gold yellow", "amber", "sunflower", "butter yellow", "blonde"},
+    "orange": {"tangerine", "rust", "burnt orange", "coral", "peach", "apricot", "terracotta", "marigold", "pumpkin"},
+    # "natural" deliberately excluded from beige's synonyms despite being in
+    # the source proposal -- too common in unrelated retail copy ("natural
+    # fiber", "all-natural"), same false-positive shape as the brand
+    # "king"/"looking" bug this file already documents.
+    "beige": {"cream", "ivory", "nude", "sand", "khaki", "oatmeal", "ecru", "taupe", "biscuit", "stone"},
+    "silver": {"chrome", "platinum", "metallic silver", "sterling", "pewter"},
+    "gold": {"golden", "rose gold", "yellow gold", "metallic gold", "champagne gold", "bronze"},
+    # "multi" deliberately excluded despite being in the source proposal --
+    # TOKEN_RE doesn't treat "-" as a token character, so "multi-pocket"
+    # (a FEATURE_VOCAB synonym below) tokenizes as ["multi", "pocket"],
+    # which would spuriously fill color=multicolor on any multi-pocket
+    # feature mention. Demonstrated, not hypothetical -- caught by
+    # cross-checking this batch against itself before adopting.
+    "multicolor": {"multi-color", "multicolored", "print", "patterned", "rainbow", "tie-dye", "ombre", "variegated", "colorblock", "color-block", "multicolour", "multicoloured"},
 }
 
 MATERIAL_VOCAB: dict[str, set[str]] = {
-    "cotton": set(),
-    "polyester": {"poly"},
-    "nylon": set(),
-    "leather": {"faux leather", "pu leather", "genuine leather"},
-    "wool": {"merino", "merino wool"},
-    "spandex": {"elastane", "lycra"},
-    "silk": set(),
-    "rayon": {"viscose"},
-    "denim": {"jean", "jeans"},
-    "linen": set(),
-    "suede": set(),
-    "fleece": set(),
-    "cashmere": set(),
-    "canvas": set(),
-    "satin": set(),
-    "velvet": set(),
-    "mesh": set(),
-    "stainless steel": {"steel"},
-    "sterling silver": set(),
-    "gold plated": {"gold-plated"},
+    "cotton": {"organic cotton", "combed cotton", "cotton blend", "pima cotton", "egyptian cotton", "ring-spun cotton", "canvas cotton", "cotton twill"},
+    "polyester": {"poly", "polyester blend", "poly blend", "recycled polyester", "microfiber", "dacron", "terylene"},
+    "nylon": {"ripstop nylon", "polyamide", "ballistic nylon", "cordura"},
+    "leather": {"faux leather", "pu leather", "genuine leather", "vegan leather", "leatherette", "full grain leather", "top grain leather", "nappa leather", "nappa", "pleather"},
+    "wool": {"merino", "merino wool", "lambswool", "virgin wool", "boiled wool", "wool blend", "tweed", "sheepswool"},
+    "spandex": {"elastane", "lycra", "elastane blend", "stretch spandex"},
+    # "silk satin" deliberately omitted from BOTH silk and satin -- it was
+    # in the source proposal for both, a genuine same-string collision
+    # (not resolved by phrase-priority, which only disambiguates DIFFERENT
+    # strings like "khaki" vs "khaki green"). Left unregistered as a
+    # phrase; token-level matching still resolves it deterministically to
+    # "silk" (the first matching token encountered), which is fine.
+    "silk": {"mulberry silk", "raw silk", "silk blend", "charmeuse", "tussar silk"},
+    "rayon": {"viscose", "modal", "lyocell", "tencel", "bamboo rayon", "cupro"},
+    "denim": {"jean", "jeans", "chambray", "raw denim", "selvedge denim", "stretch denim"},
+    "linen": {"linen blend", "pure linen", "flax", "irish linen"},
+    "suede": {"faux suede", "suede leather", "microsuede", "split suede"},
+    "fleece": {"polar fleece", "sherpa", "fleece lined", "microfleece", "french terry"},
+    "cashmere": {"pashmina", "cashmere blend", "mongolian cashmere"},
+    "canvas": {"duck canvas", "cotton canvas", "heavyweight canvas"},
+    "satin": {"poly satin", "duchess satin", "sateen"},
+    "velvet": {"velour", "crushed velvet", "cotton velvet", "plush"},
+    "mesh": {"netting", "breathable mesh", "fishnet", "power mesh"},
+    "stainless steel": {"steel", "surgical steel", "stainless"},
+    "sterling silver": {"925 silver", "925 sterling silver", "sterling"},
+    "gold plated": {"gold-plated", "gold vermeil", "gold-filled", "gold dipped", "18k gold plated", "14k gold plated"},
 }
 
 SIZE_VOCAB: dict[str, set[str]] = {
-    "xs": {"extra small", "x-small"},
-    "s": {"small"},
-    "m": {"medium"},
-    "l": {"large"},
-    "xl": {"extra large", "x-large"},
-    "xxl": {"2xl", "extra extra large"},
-    "xxxl": {"3xl"},
-    "plus size": {"plus-size", "plus"},
-    "petite": set(),
-    "tall": set(),
-    "wide width": {"wide", "wide fit"},
-    "narrow": {"narrow width", "narrow fit"},
-    "one size": {"one-size", "one size fits all"},
+    "xs": {"extra small", "x-small", "xsmall"},
+    "s": {"small", "sm"},
+    "m": {"medium", "med"},
+    "l": {"large", "lg"},
+    "xl": {"extra large", "x-large", "xlarge"},
+    "xxl": {"2xl", "extra extra large", "2x", "xx-large", "double xl"},
+    "xxxl": {"3xl", "3x", "xxxlarge", "triple xl"},
+    "plus size": {"plus-size", "plus", "curvy", "extended sizes", "full figure"},
+    "petite": {"petite fit", "short length"},
+    "tall": {"tall fit", "long length", "extra long"},
+    # "ew" deliberately excluded from wide width despite being in the
+    # source proposal -- a very common informal interjection ("ew, gross"),
+    # same risk category as "natural"/"multi" above. "ee" kept: it's a real
+    # US shoe-width designation and much less likely to appear as ordinary
+    # English text.
+    "wide width": {"wide", "wide fit", "extra wide", "ee", "wide toe box"},
+    "narrow": {"narrow width", "narrow fit", "slim width"},
+    "one size": {"one-size", "one size fits all", "os", "osfa", "universal fit"},
 }
 
 STYLE_VOCAB: dict[str, set[str]] = {
-    "casual": set(),
-    "formal": {"dressy", "dress"},
-    "athletic": {"sporty", "sport"},
-    "running": set(),
-    "vintage": {"retro"},
-    "bohemian": {"boho"},
-    "classic": {"traditional"},
-    "elegant": {"chic"},
-    "slim fit": {"slim-fit", "skinny", "skinny fit"},
-    "relaxed fit": {"relaxed-fit", "loose fit", "loose-fit", "oversized"},
-    "straight leg": {"straight-leg"},
-    "crew neck": {"crew-neck", "crewneck"},
-    "v-neck": {"v neck", "vneck"},
-    "hooded": {"hoodie"},
-    "sleeveless": set(),
-    "high waisted": {"high-waisted", "high rise", "high-rise"},
+    "casual": {"everyday style", "informal", "laid-back", "relaxed style"},
+    "formal": {"dressy", "dress", "business formal", "cocktail", "black tie", "black-tie", "semi-formal", "evening wear"},
+    "athletic": {"sporty", "sport", "activewear", "performance", "athleisure", "sportswear"},
+    "running": {"runner style", "running gear"},
+    "vintage": {"retro", "throwback", "antique", "y2k", "90s style", "80s style", "heritage"},
+    "bohemian": {"boho", "boho chic", "peasant style", "ethnic print"},
+    "classic": {"traditional", "timeless", "preppy", "minimalist"},
+    "elegant": {"chic", "sophisticated", "glam", "glamorous", "refined", "classy"},
+    "slim fit": {"slim-fit", "skinny", "skinny fit", "tailored fit", "tapered fit"},
+    "relaxed fit": {"relaxed-fit", "loose fit", "loose-fit", "oversized", "baggy", "slouchy", "roomy fit"},
+    "fitted": {"body-hugging", "form fitting", "form-fitting", "snug fit", "bodycon", "tight fit"},
+    "cropped": {"crop", "crop top", "cropped length", "short cut"},
+    "straight leg": {"straight-leg", "straight cut", "straight fit"},
+    "crew neck": {"crew-neck", "crewneck", "round neck", "round-neck"},
+    "v-neck": {"v neck", "vneck", "v-cut"},
+    "hooded": {"hoodie", "with hood", "hooded style"},
+    "sleeveless": {"no sleeves", "tank top", "tank style"},
+    "high waisted": {"high-waisted", "high rise", "high-rise", "high waist"},
 }
 
 USE_CASE_VOCAB: dict[str, set[str]] = {
-    "running": {"jogging"},
-    "hiking": {"trail"},
-    "gym": {"workout", "training"},
-    "yoga": set(),
-    "work": {"office", "workwear"},
-    "outdoor": set(),
-    "winter": {"cold weather"},
-    "summer": {"warm weather"},
-    "wedding": {"bridal"},
-    "travel": set(),
-    "everyday": {"daily wear"},
-    "party": {"evening wear"},
-    "beach": {"swim", "swimming"},
-    "school": set(),
+    "running": {"jogging", "marathon", "sprinting", "road running", "trail running"},
+    "hiking": {"trail", "trekking", "backpacking", "mountaineering", "outdoor walking"},
+    "gym": {"workout", "training", "fitness", "exercise", "weightlifting", "crossfit", "bodybuilding"},
+    "yoga": {"pilates", "barre", "stretching", "meditation"},
+    "work": {"office", "workwear", "business", "professional", "corporate", "commute"},
+    "outdoor": {"camping", "outdoors", "excursion", "nature walk"},
+    "winter": {"cold weather", "snow", "skiing", "snowboarding", "sub-zero"},
+    "summer": {"warm weather", "hot weather", "resort wear", "sunny weather"},
+    "wedding": {"bridal", "bridesmaid", "groomsman", "wedding guest"},
+    "travel": {"vacation", "holiday", "airplane", "road trip", "touring"},
+    "everyday": {"daily wear", "casual wear", "lounging", "lounge", "streetwear"},
+    "party": {"evening wear", "night out", "clubwear", "celebration", "festive"},
+    "beach": {"swim", "swimming", "poolside", "resort", "seaside", "surf"},
+    "school": {"college", "university", "campus", "back to school"},
+    "cycling": {"biking", "road cycling", "mountain biking", "spin class"},
+    "golf": {"golfing", "country club"},
+    "tennis": {"pickleball", "racquet sports", "court sports"},
 }
 
 FEATURE_VOCAB: dict[str, set[str]] = {
-    "waterproof": {"water resistant", "water-resistant"},
-    "breathable": set(),
-    "lightweight": {"light weight"},
-    "adjustable": set(),
-    "stretch": {"stretchy"},
-    "moisture-wicking": {"moisture wicking", "sweat-wicking"},
-    "non-slip": {"non slip", "anti-slip"},
-    "quick-dry": {"quick dry"},
-    "insulated": set(),
-    "reflective": set(),
-    "zippered": {"zip", "zip-up"},
-    "pockets": {"pocket"},
-    "machine washable": {"machine wash"},
-    "hypoallergenic": set(),
-    "adjustable strap": {"adjustable straps"},
+    "waterproof": {"water resistant", "water-resistant", "weatherproof", "rainproof", "impermeable"},
+    "breathable": {"ventilated", "air-permeable", "air circulation", "mesh ventilated"},
+    "lightweight": {"light weight", "featherweight", "ultra-light", "ultralight"},
+    "adjustable": {"adjustable fit", "customizable fit", "cinchable"},
+    "stretch": {"stretchy", "4-way stretch", "2-way stretch", "flexible", "elastic"},
+    "moisture-wicking": {"moisture wicking", "sweat-wicking", "dry-fit", "wicking", "dri-fit"},
+    "non-slip": {"non slip", "anti-slip", "slip resistant", "high traction", "grip sole"},
+    "quick-dry": {"quick dry", "fast-drying", "fast drying", "quick drying"},
+    "insulated": {"thermal", "fleece-lined", "thinsulate", "warm lined", "padded insulation"},
+    "reflective": {"high-visibility", "hi-vis", "reflective detail", "night visibility"},
+    "zippered": {"zip", "zip-up", "zipper closure", "full-zip", "half-zip", "quarter-zip"},
+    "pockets": {"pocket", "pocketed", "multi-pocket", "zippered pockets", "cargo pockets"},
+    "machine washable": {"machine wash", "easy care", "washable"},
+    "hypoallergenic": {"sensitive skin safe", "nickel-free", "allergy friendly"},
+    "adjustable strap": {"adjustable straps", "removable strap", "padded strap"},
+    "padded": {"cushioned", "cushioning", "impact absorbing", "shock absorbing"},
+    "arch support": {"orthotic", "supportive", "arch-support", "orthotic friendly", "footbed support"},
+    "uv protection": {"upf", "sun protection", "upf 50+", "uv resistant"},
+    "wrinkle-free": {"wrinkle resistant", "no-iron", "non-iron", "crease resistant"},
+    "reversible": {"2-in-1", "dual-sided", "two-sided"},
 }
 
+# Coarser groupings over MATERIAL_VOCAB's canonical values, used only by
+# extract_negated_values() below. A closed, hand-curated table over an
+# already-closed ~19-material catalog vocabulary -- deliberately NOT an
+# attempt at a general material taxonomy, just enough to resolve the
+# category-level negations this catalog's clothing/shoe/jewelry materials
+# actually produce ("not an animal fiber", "not synthetic"). Incomplete by
+# construction, same caveat as every other hand-curated table in this file:
+# an unanticipated phrasing still falls through uncaught. Four groupings
+# span all 19 MATERIAL_VOCAB canonical values: animal-derived, synthetic/
+# man-made, plant-based, and metal -- "natural" deliberately covers BOTH
+# plant and animal fiber (common usage: "natural" means "not synthetic",
+# not "not animal"), so it's the union, not a fifth disjoint group.
+MATERIAL_CATEGORY_ALIASES: dict[str, set[str]] = {
+    "animal": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal fiber": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal fibers": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal-derived": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal derived": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal product": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal products": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal based": {"wool", "silk", "cashmere", "leather", "suede"},
+    "animal-based": {"wool", "silk", "cashmere", "leather", "suede"},
+    "synthetic": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "synthetic fiber": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "synthetic fibers": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "synthetic material": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "man-made": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "man made": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "man-made fiber": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "manmade": {"polyester", "nylon", "spandex", "rayon", "mesh", "fleece"},
+    "plant-based": {"cotton", "linen", "denim", "canvas"},
+    "plant based": {"cotton", "linen", "denim", "canvas"},
+    "plant fiber": {"cotton", "linen", "denim", "canvas"},
+    "plant fibers": {"cotton", "linen", "denim", "canvas"},
+    "vegetable fiber": {"cotton", "linen", "denim", "canvas"},
+    "natural fiber": {"cotton", "linen", "denim", "canvas", "wool", "silk", "cashmere", "leather", "suede"},
+    "natural fibers": {"cotton", "linen", "denim", "canvas", "wool", "silk", "cashmere", "leather", "suede"},
+    "natural material": {"cotton", "linen", "denim", "canvas", "wool", "silk", "cashmere", "leather", "suede"},
+    "natural materials": {"cotton", "linen", "denim", "canvas", "wool", "silk", "cashmere", "leather", "suede"},
+    "metal": {"stainless steel", "sterling silver", "gold plated"},
+    "metallic": {"stainless steel", "sterling silver", "gold plated"},
+    "metal alloy": {"stainless steel", "sterling silver", "gold plated"},
+}
+
+# Cue phrases that introduce a negated/excluded span within a disclosed
+# clause. Broader than a first pass, but still a closed, reviewed list
+# rather than general negation parsing -- same discipline as
+# CONTRADICTION_CUES and NO_PREFERENCE_CUES below. Bare "no" is
+# deliberately excluded: it's extremely common in ordinary text ("no
+# problem"), it would collide with contains_no_preference()'s own "no
+# preference" handling, and unlike the other cues here it isn't reliably
+# followed by the thing being ruled out.
+_NEGATION_CUE_RE = re.compile(
+    r"\b(?:"
+    r"not|never|none\s+of|"
+    r"isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|"
+    r"doesn['’]?t|don['’]?t|won['’]?t|can['’]?t|cannot|"
+    r"without|"
+    r"unlike|instead\s+of|rather\s+than|other\s+than|"
+    r"except|excluding|besides|apart\s+from|aside\s+from|"
+    r"as\s+opposed\s+to|in\s+place\s+of"
+    r")\b\s*(.+)",
+    re.I,
+)
+
+
+def _match_vocab_all(text_norm: str, tokens: list[str], vocab: dict[str, set[str]]) -> set[str]:
+    """Like _match_vocab, but returns EVERY distinct canonical value found,
+    not just the first. A negation span can list more than one excluded
+    value ("not wool or leather") -- _match_vocab (used by extract(), which
+    fills a single-valued slot) deliberately stops at the first match, which
+    is wrong for this use case.
+    """
+    cached = _LOOKUP_CACHE.get(id(vocab))
+    if cached is None:
+        cached = _build_lookup(vocab)
+        _LOOKUP_CACHE[id(vocab)] = cached
+    lookup, phrases = cached
+    found: set[str] = set()
+    for phrase in phrases:
+        if phrase in text_norm:
+            found.add(lookup[phrase])
+    for token in tokens:
+        singular = _singularize(token)
+        if token in lookup:
+            found.add(lookup[token])
+        elif singular in lookup:
+            found.add(lookup[singular])
+    return found
+
+
+_NEGATABLE_VOCABS: tuple[tuple[str, dict[str, set[str]]], ...] = (
+    ("color", COLOR_VOCAB),
+    ("material", MATERIAL_VOCAB),
+    ("size", SIZE_VOCAB),
+    ("style", STYLE_VOCAB),
+    ("use_case", USE_CASE_VOCAB),
+    ("feature", FEATURE_VOCAB),
+)
+
+
+def extract_negated_values(text: str, vocabulary: "Vocabulary") -> dict[str, set[str]]:
+    """Return, per slot, canonical values a clause explicitly rules out.
+
+    Two sources, both deterministic and exact -- no embedding involved:
+    literal vocabulary terms found in the negated span (e.g. "not wool"),
+    and MATERIAL_CATEGORY_ALIASES for category-level phrasing the plain
+    vocabulary can't name directly (e.g. "not an animal fiber"). Used to
+    exclude candidates from the semantic-similarity fallback bonus in
+    agent.py BEFORE the embedding runs, rather than asking the embedding
+    to understand negation -- which it demonstrably cannot (see CLAUDE.md
+    iteration 7's negation finding).
+
+    `vocabulary` is accepted for interface symmetry with the rest of this
+    module but unused -- the module-level vocab dicts are matched directly
+    via _match_vocab_all so multiple excluded values in one span are all
+    captured, unlike Vocabulary.extract()'s single-value-per-slot design.
+
+    Only ever adds exclusions; returns {} if no negation cue is present.
+    Stops the negated span at the next clause boundary so "not wool, but
+    soft" doesn't over-capture "soft" as also excluded.
+    """
+    match = _NEGATION_CUE_RE.search(text)
+    if not match:
+        return {}
+    span = re.split(r"[,.;]", match.group(1), maxsplit=1)[0]
+    span_norm = _normalize(span)
+    span_tokens = [t.lower() for t in TOKEN_RE.findall(span_norm)]
+
+    excluded: dict[str, set[str]] = {}
+    for slot_name, vocab_dict in _NEGATABLE_VOCABS:
+        found = _match_vocab_all(span_norm, span_tokens, vocab_dict)
+        if found:
+            excluded.setdefault(slot_name, set()).update(found)
+
+    for alias, materials in MATERIAL_CATEGORY_ALIASES.items():
+        if _contains_term(span_norm, alias):
+            excluded.setdefault("material", set()).update(materials)
+
+    return excluded
+
+
+# contains_no_preference() below checks these via plain substring
+# containment (`cue in text`), NOT the word-boundary-checked _contains_term
+# or token-exact _match_vocab used everywhere else in this file -- so a
+# short/common entry here is riskier than an equivalent vocab-dict entry.
+# Confirmed empirically: "any" alone matches inside "many" ("how many
+# colors"), and bare "either" matches inside "neither" -- both excluded for
+# exactly that reason (the same false-positive shape as the brand
+# `_contains_term` bug this file already documents, just with no
+# word-boundary protection to catch it). The qualified phrasings ("any is
+# fine", "either way", "anything is fine") are kept -- they're long/specific
+# enough that the collision risk is negligible, and they cover the same
+# intent without it.
 NO_PREFERENCE_CUES = (
+    # Base list
     "no preference", "don't care", "dont care", "doesn't matter",
     "does not matter", "any is fine", "any of them", "up to you",
     "your judgment", "your judgement", "whatever works", "no particular",
     "not picky", "no strong preference", "i'm flexible", "im flexible",
-    "surprise me",
+    "surprise me", "not sure", "idk",
+
+    # Informal & conversational
+    "whatever", "whichever", "any works", "anything works", "anything is fine",
+    "either is fine", "either way", "either works", "whatever you think",
+    "whatever you prefer", "dealer's choice", "dealers choice", "you decide",
+    "you choose", "your call", "up to your discretion", "as you see fit",
+
+    # Relaxed / indifferent
+    "makes no difference", "it's all good", "its all good", "fine with anything",
+    "happy with whatever", "open to anything", "no opinion", "no real preference",
+    "no special preference", "don't mind", "dont mind", "doesn't bother me",
+    "i don't mind", "i dont mind", "doesn't make a difference",
+
+    # Short / slang / typos -- "any", bare "either", and bare "anything"
+    # deliberately excluded, see the module comment above.
+    "idc", "w/e", "watever", "doesn't matter to me",
+    "doesnt matter to me", "anything's fine", "anythings fine", "doesn't matter much",
+
+    # Indecisive / open-ended
+    "hard to say", "not bothered", "could go either way", "no idea",
+    "don't know", "dont know", "unsure", "i'm easy", "im easy",
 )
 
 _NUMBER = r"\d+(?:\.\d+)?"
