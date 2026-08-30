@@ -13,6 +13,12 @@ STOPWORDS = {
     "that", "the", "this", "to", "want", "with", "would", "you", "looking",
 }
 
+# Domain attributes for slot extraction and active clarification
+KNOWN_ATTRIBUTES = ["category", "color", "size", "brand", "material", "gender"]
+
+COLOR_MAP = {"black", "white", "red", "blue", "green", "yellow", "brown", "grey", "gray", "pink", "purple"}
+CATEGORY_MAP = {"shoes", "sneakers", "boots", "jacket", "shirt", "pants", "dress", "hoodie", "watch", "bag"}
+
 
 def _text(value: object) -> str:
     if value is None:
@@ -33,18 +39,15 @@ def _terms(text: str) -> list[str]:
 
 
 class Agent:
-    """Enhanced baseline: SQLite FTS5 BM25 retrieval with user profile alignment, 
-    intent override detection, and dynamic weight aggregation."""
-
     def __init__(self, catalog_path: str | Path = "data/catalog.jsonl") -> None:
         self.catalog_path = Path(catalog_path)
         self.connection = sqlite3.connect(":memory:")
         self._sessions: set[str] = set()
         
-        # Session state management
+        # Schema-compliant state: dictionary-based slot tracking per session
         self._user_profiles: dict[str, dict] = {}
-        self._session_history: dict[str, list[str]] = {}
-        self._session_constraints: dict[str, list[str]] = {}
+        self._session_slots: dict[str, dict[str, str]] = {}
+        self._asked_attributes: dict[str, set[str]] = {}
 
         self._build_index()
 
@@ -78,41 +81,52 @@ class Agent:
         self.connection.commit()
 
     def reset(self, session_id: str, user_profile: dict) -> None:
-        """Reset session state and store profile metadata."""
         self._sessions.add(session_id)
+        # Strict adherence to docs/agent_api_contract.json (only standard user profile fields)
         self._user_profiles[session_id] = user_profile or {}
-        self._session_history[session_id] = []
-        self._session_constraints[session_id] = []
+        self._session_slots[session_id] = {}
+        self._asked_attributes[session_id] = set()
 
-    def _detect_intent_override(self, message: str) -> bool:
-        """Check if the user is changing their mind or resetting requirements."""
-        override_patterns = [
-            r"actually", r"instead", r"never\s+mind",
-            r"changed\s+my\s+mind", r"switch\s+to", r"different"
-        ]
-        pattern = r"\b(" + "|".join(override_patterns) + r")\b"
-        return bool(re.search(pattern, message, re.I))
+    def _extract_and_update_slots(self, session_id: str, message: str) -> None:
+        """Slot-filling extraction with per-slot override handling (no full wipes)."""
+        tokens = set(_terms(message))
+        slots = self._session_slots[session_id]
 
-    def _calculate_user_weight(self, profile: dict, scenario_type: str = "browsing") -> float:
-        """
-        Calculates a dynamic weight multiplier based on user prior ratings and scenario.
-        """
-        base_weight = 1.0
+        # Extract Category (Overwrites prior category slot if a new category is specified)
+        matched_categories = tokens.intersection(CATEGORY_MAP)
+        if matched_categories:
+            slots["category"] = list(matched_categories)[0]
 
-        # Scenario aggregation
-        if scenario_type == "buying":
-            base_weight += 0.3
-        elif scenario_type == "browsing":
-            base_weight -= 0.1
+        # Extract Color (Overwrites prior color slot if a new color is specified)
+        matched_colors = tokens.intersection(COLOR_MAP)
+        if matched_colors:
+            slots["color"] = list(matched_colors)[0]
 
-        # User profile prior rating aggregation
-        prior_rating = profile.get("average_prior_rating", 3.0)
-        if prior_rating >= 4.0:
-            base_weight *= 1.25  # High satisfaction -> boost match weights
-        elif prior_rating <= 2.0:
-            base_weight *= 0.75  # Critical reviewer -> lower weight base
+        # Extract Generic Keywords (Store non-slot tokens safely without overwriting structured slots)
+        generic_tokens = tokens - CATEGORY_MAP - COLOR_MAP
+        if generic_tokens:
+            existing_keywords = set(slots.get("keywords", "").split())
+            # Update keyword set
+            slots["keywords"] = " ".join(existing_keywords.union(generic_tokens))
 
-        return base_weight
+    def _determine_next_attribute_to_ask(self, session_id: str) -> str | None:
+        """Determines missing high-priority attributes to actively prompt the user."""
+        slots = self._session_slots[session_id]
+        asked = self._asked_attributes[session_id]
+        profile = self._user_profiles.get(session_id, {})
+        preference_tags = profile.get("preference_tags", [])
+
+        # Attribute priority order: profile preferences first, then standard slot hierarchy
+        priority_order = [tag for tag in preference_tags if tag in KNOWN_ATTRIBUTES]
+        for attr in KNOWN_ATTRIBUTES:
+            if attr not in priority_order:
+                priority_order.append(attr)
+
+        for attr in priority_order:
+            if attr not in slots and attr not in asked:
+                asked.add(attr)
+                return attr
+        return None
 
     def respond(
         self,
@@ -124,49 +138,45 @@ class Agent:
         if session_id not in self._sessions:
             raise RuntimeError("reset must be called before respond")
 
-        # 1. Intent Override Detection
-        if self._detect_intent_override(user_message):
-            self._session_constraints[session_id].clear()
+        # 1. Update slots with per-slot overwrite handling
+        self._extract_and_update_slots(session_id, user_message)
+        slots = self._session_slots[session_id]
 
-        # 2. Accumulate tokens and message history
-        current_terms = _terms(user_message)
-        self._session_constraints[session_id].extend(current_terms)
-        self._session_history[session_id].append(user_message)
+        # 2. Construct search query strictly from ACTIVE slots (prevents term pollution)
+        query_parts = []
+        if "category" in slots:
+            query_parts.append(f'"{slots["category"]}"')
+        if "color" in slots:
+            query_parts.append(f'"{slots["color"]}"')
+        if "keywords" in slots and slots["keywords"]:
+            query_parts.append(" OR ".join(f'"{kw}"' for kw in slots["keywords"].split()[:5]))
 
-        # 3. Aggregate Profile Signals & Calculate Dynamic Weights
-        profile = self._user_profiles.get(session_id, {})
-        preference_tags = profile.get("preference_tags", [])
-        scenario = profile.get("scenario_type", "browsing")
+        expression = " AND ".join(query_parts) if query_parts else ""
 
-        user_weight_multiplier = self._calculate_user_weight(profile, scenario)
+        # 3. Candidate Retrieval via SQLite FTS5 BM25
+        recommendations: list[dict] = []
+        if expression:
+            try:
+                # Rank heavily on Title and Category fields
+                query = """
+                    SELECT parent_asin FROM products WHERE products MATCH ? 
+                    ORDER BY bm25(products, 0.0, 10.0, 5.0, 2.0, 1.0, 1.0, 1.0) 
+                    LIMIT ?
+                """
+                rows = self.connection.execute(query, (expression, top_k)).fetchall()
+                recommendations = [{"parent_asin": str(row[0])} for row in rows]
+            except sqlite3.OperationalError:
+                pass
 
-        # Scale BM25 column weights using dynamic user profile weight
-        title_wt = round(6.0 * user_weight_multiplier, 2)
-        category_wt = round(4.0 * user_weight_multiplier, 2)
-        features_wt = round(2.5 * user_weight_multiplier, 2)
-        details_wt = round(2.5 * user_weight_multiplier, 2)
-
-        # 4. Combine session search terms with preference tags
-        combined_terms = self._session_constraints[session_id] + preference_tags
-        unique_terms = list(dict.fromkeys(combined_terms))[:40]
-
-        expression = " OR ".join(f'"{term}"' for term in unique_terms)
-
-        # 5. Execute FTS5 Search using Aggregated Weights
-        if not expression:
-            recommendations: list[dict] = []
-        else:
-            query = f"""
-                SELECT parent_asin FROM products WHERE products MATCH ? 
-                ORDER BY bm25(products, 0.0, {title_wt}, {category_wt}, {features_wt}, {details_wt}, 1.5, 1.0) 
-                LIMIT ?
-            """
-            rows = self.connection.execute(query, (expression, top_k)).fetchall()
-            recommendations = [{"parent_asin": str(row[0])} for row in rows]
+        # 4. Active Clarification Disclosure Check (ask_attribute)
+        # Ask for missing attributes in earlier turns to unlock customer responses
+        ask_attribute = None
+        if turn < 3 and len(recommendations) < top_k:
+            ask_attribute = self._determine_next_attribute_to_ask(session_id)
 
         return {
-            "message": "Here are the closest matches I found.",
-            "ask_attribute": None,
+            "message": f"Asking about {ask_attribute}" if ask_attribute else "Here are your matching products.",
+            "ask_attribute": ask_attribute,
             "recommendations": recommendations,
             "usage": {"prompt_tokens": 0, "completion_tokens": 0},
         }
