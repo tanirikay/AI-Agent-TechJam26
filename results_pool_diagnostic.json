@@ -1,0 +1,56 @@
+{
+  "total_turns": 930,
+  "sessions": 200,
+  "pool_threshold": 15,
+  "pool_size_min": 200,
+  "pool_size_max": 200,
+  "pool_size_mean": 200.0,
+  "turns_at_or_below_threshold": 0,
+  "turns_below_200": 0,
+  "pool_size_histogram": {
+    "200": 930
+  },
+  "sessions_with_ask_repeated_3plus": 0,
+  "max_repeat_streak_histogram": {
+    "1": 200
+  },
+  "metrics": {
+    "sample_count": 200,
+    "hit_rate_at_10": 0.775,
+    "mrr": 0.491901,
+    "mttc": 4.875,
+    "efficiency": 0.6125,
+    "recommended_technical_score": 0.65757,
+    "reported_token_usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.228571,
+        "mttc": 7.0
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.775,
+        "mrr": 0.46308,
+        "mttc": 5.0
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7875,
+        "mrr": 0.499926,
+        "mttc": 4.375
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.8,
+        "mrr": 0.635132,
+        "mttc": 5.166667
+      }
+    }
+  }
+}

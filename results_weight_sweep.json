@@ -1,0 +1,289 @@
+[
+  {
+    "name": "boost store + title, cut description",
+    "weights": [
+      7.0,
+      4.0,
+      2.5,
+      2.0,
+      4.0,
+      0.5
+    ],
+    "hit_rate_at_10": 0.775,
+    "mrr": 0.505921,
+    "mttc": 4.965,
+    "technical_score": 0.659976,
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.305952,
+        "mttc": 7.0
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.775,
+        "mrr": 0.481925,
+        "mttc": 5.125
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7875,
+        "mrr": 0.512654,
+        "mttc": 4.475
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.8,
+        "mrr": 0.618611,
+        "mttc": 5.166667
+      }
+    }
+  },
+  {
+    "name": "categories-dominant",
+    "weights": [
+      5.0,
+      6.0,
+      2.5,
+      2.0,
+      3.0,
+      1.0
+    ],
+    "hit_rate_at_10": 0.775,
+    "mrr": 0.491901,
+    "mttc": 4.875,
+    "technical_score": 0.65757,
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.228571,
+        "mttc": 7.0
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.775,
+        "mrr": 0.46308,
+        "mttc": 5.0
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7875,
+        "mrr": 0.499926,
+        "mttc": 4.375
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.8,
+        "mrr": 0.635132,
+        "mttc": 5.166667
+      }
+    }
+  },
+  {
+    "name": "boost store",
+    "weights": [
+      6.0,
+      4.0,
+      2.5,
+      2.5,
+      4.0,
+      1.0
+    ],
+    "hit_rate_at_10": 0.77,
+    "mrr": 0.502375,
+    "mttc": 4.935,
+    "technical_score": 0.657012,
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.305952,
+        "mttc": 7.0
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7625,
+        "mrr": 0.474142,
+        "mttc": 5.1
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7875,
+        "mrr": 0.510293,
+        "mttc": 4.4125
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.8,
+        "mrr": 0.622024,
+        "mttc": 5.2
+      }
+    }
+  },
+  {
+    "name": "baseline (starter defaults)",
+    "weights": [
+      6.0,
+      4.0,
+      2.5,
+      2.5,
+      1.5,
+      1.0
+    ],
+    "hit_rate_at_10": 0.77,
+    "mrr": 0.501125,
+    "mttc": 4.935,
+    "technical_score": 0.656637,
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.305952,
+        "mttc": 7.0
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7625,
+        "mrr": 0.471017,
+        "mttc": 5.1
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7875,
+        "mrr": 0.510293,
+        "mttc": 4.4125
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.8,
+        "mrr": 0.622024,
+        "mttc": 5.2
+      }
+    }
+  },
+  {
+    "name": "flatten weights",
+    "weights": [
+      4.0,
+      4.0,
+      3.0,
+      3.0,
+      3.0,
+      2.0
+    ],
+    "hit_rate_at_10": 0.76,
+    "mrr": 0.499952,
+    "mttc": 5.02,
+    "technical_score": 0.649586,
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.210278,
+        "mttc": 7.0
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7375,
+        "mrr": 0.480397,
+        "mttc": 5.3
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.8,
+        "mrr": 0.519851,
+        "mttc": 4.325
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.766667,
+        "mrr": 0.595595,
+        "mttc": 5.466667
+      }
+    }
+  },
+  {
+    "name": "title-dominant",
+    "weights": [
+      8.0,
+      3.0,
+      2.0,
+      2.0,
+      2.0,
+      0.5
+    ],
+    "hit_rate_at_10": 0.76,
+    "mrr": 0.490103,
+    "mttc": 5.045,
+    "technical_score": 0.646131,
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.349286,
+        "mttc": 6.6
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.75,
+        "mrr": 0.489206,
+        "mttc": 5.3
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.775,
+        "mrr": 0.459544,
+        "mttc": 4.55
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.8,
+        "mrr": 0.620926,
+        "mttc": 5.166667
+      }
+    }
+  },
+  {
+    "name": "store-dominant",
+    "weights": [
+      5.0,
+      3.0,
+      2.0,
+      2.0,
+      6.0,
+      1.0
+    ],
+    "hit_rate_at_10": 0.76,
+    "mrr": 0.480831,
+    "mttc": 5.015,
+    "technical_score": 0.643949,
+    "scenario_metrics": {
+      "boundary": {
+        "sample_count": 10,
+        "hit_rate_at_10": 0.6,
+        "mrr": 0.32,
+        "mttc": 7.0
+      },
+      "browsing": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.75,
+        "mrr": 0.470129,
+        "mttc": 5.1875
+      },
+      "buying": {
+        "sample_count": 80,
+        "hit_rate_at_10": 0.7875,
+        "mrr": 0.471186,
+        "mttc": 4.4625
+      },
+      "intent_override": {
+        "sample_count": 30,
+        "hit_rate_at_10": 0.766667,
+        "mrr": 0.588704,
+        "mttc": 5.366667
+      }
+    }
+  }
+]
