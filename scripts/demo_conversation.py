@@ -17,10 +17,10 @@ from __future__ import annotations
 
 import argparse
 
-from agent import memory
-from agent.agent import Agent
-from agent.constraint_rerank import normalize_constraint_text
-from agent.retrieval import build_catalog_index
+from src import memory
+from agent import Agent
+from src.constraint_rerank import normalize_constraint_text
+from src.retrieval import build_catalog_index
 from evaluator.local_evaluator import (
     catalog_index,
     coarse_category,

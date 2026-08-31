@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from agent import memory
-from agent.price_rerank import (
+from src import memory
+from src.price_rerank import (
     rerank_by_maximum_budget,
     rerank_by_price_constraint,
     rerank_by_target_price,
 )
-from agent.vocab import (
+from src.vocab import (
     BudgetConstraint,
     Vocabulary,
     extract_budget,

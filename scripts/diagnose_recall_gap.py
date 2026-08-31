@@ -17,7 +17,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from agent.agent import Agent
+from agent_dev.agent import Agent
 from evaluator.local_evaluator import (
     MAX_TURNS,
     TOP_K,

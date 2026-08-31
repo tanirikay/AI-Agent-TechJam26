@@ -9,8 +9,8 @@ pool / top-10.
 
 from __future__ import annotations
 
-from agent.agent import Agent
-from agent import memory
+from agent_dev.agent import Agent
+from src import memory
 from evaluator.local_evaluator import (
     MAX_TURNS,
     TOP_K,

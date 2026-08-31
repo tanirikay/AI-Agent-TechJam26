@@ -25,7 +25,7 @@ import json
 import re
 from pathlib import Path
 
-from agent.vocab import (
+from src.vocab import (
     COLOR_VOCAB,
     FEATURE_VOCAB,
     MATERIAL_VOCAB,

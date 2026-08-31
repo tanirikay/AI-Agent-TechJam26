@@ -16,11 +16,11 @@ from __future__ import annotations
 import argparse
 import sqlite3
 
-from agent import memory
-from agent.agent import Agent
-from agent.constraint_rerank import build_normalized_product_evidence
-from agent.retrieval import CatalogIndex
-from agent.vocab import Vocabulary, extract_negated_values
+from src import memory
+from agent import Agent
+from src.constraint_rerank import build_normalized_product_evidence
+from src.retrieval import CatalogIndex
+from src.vocab import Vocabulary, extract_negated_values
 
 CATALOG = {
     "boot": {

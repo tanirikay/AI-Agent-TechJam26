@@ -4,8 +4,8 @@ on top of the adopted preference_tag_bonus=1.5, full 200 + alternating split.
 
 from __future__ import annotations
 
-from agent.agent import Agent
-from agent.retrieval import build_catalog_index
+from agent_dev.agent import Agent
+from src.retrieval import build_catalog_index
 from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
 
 

@@ -1,13 +1,35 @@
 # Agent status (for Claude Code sessions)
 
-This file tracks the `agent/` implementation for the TechJam conversational
+**Path note (post-restructure):** everything below was written while the
+implementation lived in a package called `agent/`. During submission
+cleanup the repo was restructured so the whole repo IS the submission (no
+separate `submission/` bundle) and so a single top-level `agent.py` can be
+the required entry point without colliding with a same-named package.
+`agent/memory.py`, `agent/vocab.py`, `agent/retrieval.py`,
+`agent/constraint_rerank.py`, and `agent/price_rerank.py` are now
+`src/memory.py`, `src/vocab.py`, `src/retrieval.py`,
+`src/constraint_rerank.py`, and `src/price_rerank.py` (shared, single
+canonical copies). `agent/agent.py` (the full, experimentally-configurable
+Agent) and `agent/embed_rerank.py` are now `agent_dev/agent.py` and
+`agent_dev/embed_rerank.py`. The root `agent.py` is a new, separate,
+frozen-configuration Agent (only `catalog_path`/`index`, none of the
+experimental switches below) built from this history and verified
+byte-identical to `agent_dev.agent.Agent`'s default output, including at
+the level of every individual session's hit/rank/turn, not just aggregate
+metrics. Every path mention below (`agent/agent.py`, `agent/memory.py`,
+etc.) is left as originally written, describing the code at the time each
+iteration happened -- read `agent/X.py` as `src/X.py` (for memory, vocab,
+retrieval, constraint_rerank, price_rerank) or `agent_dev/X.py` (for
+agent.py, embed_rerank.py).
+
+This file tracks the agent implementation for the TechJam conversational
 search challenge — what it does, why it's built this way, and what's still
-open. Read this before touching `agent/*` or the tuning scripts; it saves
-re-deriving conclusions that were already measured.
+open. Read this before touching `agent.py`, `src/*`, `agent_dev/*`, or the
+tuning scripts; it saves re-deriving conclusions that were already measured.
 
 The competition's own docs (`README.md`, `docs/competition_specification.md`,
 `docs/agent_api_contract.json`) describe the task and scoring. This file is
-about the participant solution in `agent/`, not the competition itself.
+about the participant solution, not the competition itself.
 
 ## What this is
 
@@ -456,7 +478,10 @@ nothing, that is strong evidence the remaining ranking signal genuinely
 requires a learned constraint-aware model and the scope question becomes
 unavoidable.
 
-Per-session rows: `runs/ceiling_diagnostic.json` (keys `"0.2"` / `"1.5"`).
+Per-session rows: `runs/ceiling1.json` (keys `"0.2"` / `"1.5"`) — the script's
+own default output name is `runs/ceiling_diagnostic.json`; the tracked file
+was renamed after a determinism-check re-run (`ceiling2.json`, byte-identical,
+removed during submission cleanup) confirmed byte-identical output.
 
 ## Iteration 3 — Phase 2: structural query-hygiene filter — TESTED AND REJECTED (badly)
 

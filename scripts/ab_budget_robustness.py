@@ -13,8 +13,8 @@ import statistics
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent.price_rerank import rerank_by_maximum_budget, rerank_by_price_constraint
-from agent.vocab import BudgetConstraint, parse_price
+from src.price_rerank import rerank_by_maximum_budget, rerank_by_price_constraint
+from src.vocab import BudgetConstraint, parse_price
 
 
 POOL_SIZE = 20

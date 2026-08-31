@@ -1,6 +1,8 @@
-"""Integration test for the constraint-rerank semantic fallback (agent.py's
-`semantic_fallback_window`), using REAL sentence-transformer embeddings
-against a small hand-built synthetic catalog.
+"""Integration test for the constraint-rerank semantic fallback
+(agent_dev.agent's `semantic_fallback_window` -- an experimental,
+disabled-by-default mechanism not present in the root agent.py that
+actually ships), using REAL sentence-transformer embeddings against a
+small hand-built synthetic catalog.
 
 Why this exists as a separate file: this is the one mechanism in this
 codebase that cannot be validated against the public 200 sessions, because
@@ -10,14 +12,21 @@ file manufactures paraphrase scenarios deliberately, matching the risk
 docs/competition_specification.md:40 leaves open for the private 800
 ("If natural-language paraphrasing is added by the organizer...").
 
-Skips cleanly if sentence-transformers/torch aren't installed, matching
-agent/embed_rerank.py's own lazy-import discipline -- this mechanism is
-opt-in and must not force the ML dependency on anyone running the default
-test suite.
+Skips cleanly -- never hangs, never attempts a real network call as part of
+default `python -m unittest discover` -- in TWO cases: sentence-transformers/
+torch aren't installed, or they're installed but no model is cached and
+there's no network access to fetch one (a real gap found during submission
+cleanup: import-availability alone was being used as the skip condition,
+which doesn't catch "installed but unreachable"). Matches
+agent_dev/embed_rerank.py's own lazy-import discipline either way -- this
+mechanism is opt-in and must not force the ML dependency, or a network
+call, on anyone running the default test suite.
 """
 
 from __future__ import annotations
 
+import shutil
+import tempfile
 import unittest
 
 try:
@@ -26,13 +35,13 @@ try:
 except ImportError:
     HAVE_EMBEDDINGS = False
 
-from agent.constraint_rerank import (
+from src.constraint_rerank import (
     build_normalized_product_evidence,
     find_unmatched_constraints,
     rerank_by_exact_constraints,
 )
-from agent.memory import RawConstraint, get_attribute_value
-from agent.vocab import Vocabulary, extract_negated_values
+from src.memory import RawConstraint, get_attribute_value
+from src.vocab import Vocabulary, extract_negated_values
 
 # A small synthetic catalog spanning three unrelated product types, so a
 # semantic mismatch (e.g. matching the wool sweater instead of the boot)
@@ -72,12 +81,30 @@ _NORMALIZED_EVIDENCE = {asin: build_normalized_product_evidence(p) for asin, p i
 
 @unittest.skipUnless(HAVE_EMBEDDINGS, "sentence-transformers not installed -- semantic fallback is opt-in")
 class SemanticFallbackParaphraseTest(unittest.TestCase):
+    """Only runs if sentence-transformers is importable AND the model can
+    actually be loaded. Import availability alone isn't enough to prove
+    that: the library can be installed with no model cached and no network
+    access, in which case SentenceTransformer(...) tries to reach Hugging
+    Face and fails. Caught broadly and turned into a clean skip -- default
+    `python -m unittest discover` must never hang or fail the whole suite
+    just because this optional, disabled-by-default experiment's dependency
+    happens to be present."""
+
     @classmethod
     def setUpClass(cls) -> None:
-        from agent.embed_rerank import EmbeddingReranker
+        from agent_dev.embed_rerank import EmbeddingReranker
 
-        cls.reranker = EmbeddingReranker(cache_dir="C:/Hackathons/AI-Agent-TechJam26/.embed_cache_test")
-        cls.reranker.build_or_load(_CATALOG)
+        cls._temp_cache = tempfile.mkdtemp(prefix="techjam_embed_cache_")
+        try:
+            cls.reranker = EmbeddingReranker(cache_dir=cls._temp_cache)
+            cls.reranker.build_or_load(_CATALOG)
+        except Exception as exc:  # network error, no cached model, etc.
+            shutil.rmtree(cls._temp_cache, ignore_errors=True)
+            raise unittest.SkipTest(f"sentence-transformers model unavailable ({exc!r})")
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(getattr(cls, "_temp_cache", ""), ignore_errors=True)
 
     def _raw_bonus_for(self, clause_text: str, epsilon: float = 0.05) -> dict[str, float]:
         """The embedding fallback WITHOUT the negation-exclusion layer --

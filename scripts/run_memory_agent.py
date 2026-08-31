@@ -1,4 +1,5 @@
-"""Run the public-set evaluator against agent.agent.Agent (memory + follow-up module).
+"""Run the public-set evaluator against the graded agent (root agent.py, the
+actual submitted entry point -- memory + follow-up module).
 
 Mirrors evaluator/local_evaluator.py's main(), but points at the new Agent
 instead of the weak BM25 starter, so the two can be compared side by side
@@ -11,7 +12,7 @@ import argparse
 import json
 from pathlib import Path
 
-from agent.agent import Agent
+from agent import Agent
 from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
 
 

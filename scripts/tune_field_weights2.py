@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agent.agent import Agent
-from agent.retrieval import build_catalog_index
+from agent_dev.agent import Agent
+from src.retrieval import build_catalog_index
 from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
 
 INCUMBENT = (5.0, 6.0, 2.5, 2.0, 3.0, 1.0)

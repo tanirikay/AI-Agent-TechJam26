@@ -13,8 +13,8 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from agent.constraint_rerank import build_normalized_product_evidence
-from agent.vocab import Vocabulary, deepest_category_segment
+from src.constraint_rerank import build_normalized_product_evidence
+from src.vocab import Vocabulary, deepest_category_segment
 
 TOKEN_RE = re.compile(r"[a-z0-9]+", re.IGNORECASE)
 STOPWORDS = {

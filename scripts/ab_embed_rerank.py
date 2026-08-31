@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import time
 
-from agent.agent import Agent
-from agent.retrieval import build_catalog_index
+from agent_dev.agent import Agent
+from src.retrieval import build_catalog_index
 from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
 
 WINDOWS = [None, 200, 100, 40, 20]  # None in the "control" slot below

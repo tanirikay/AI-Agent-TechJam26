@@ -6,3 +6,5 @@ __pycache__/
 .venv/
 .embed_cache/
 .embed_cache_test/
+.DS_Store
+.Rhistory

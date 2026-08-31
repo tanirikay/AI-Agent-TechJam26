@@ -3,15 +3,15 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from agent.agent import Agent
-from agent.constraint_rerank import (
+from agent_dev.agent import Agent
+from src.constraint_rerank import (
     build_normalized_product_evidence,
     find_unmatched_constraints,
     normalize_constraint_text,
     rerank_by_exact_constraints,
 )
-from agent.memory import RawConstraint, Source, get_active_raw_constraints, reset, update_state
-from agent.vocab import Vocabulary, extract_negated_values
+from src.memory import RawConstraint, Source, get_active_raw_constraints, reset, update_state
+from src.vocab import Vocabulary, extract_negated_values
 
 
 class ConstraintNormalizationTest(unittest.TestCase):

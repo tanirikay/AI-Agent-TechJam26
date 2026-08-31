@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import sys
 
-from agent.agent import Agent
-from agent.retrieval import build_catalog_index
+from agent_dev.agent import Agent
+from src.retrieval import build_catalog_index
 from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
 
 CANDIDATES = [float(a) for a in sys.argv[1:]] or [0.2, 0.35, 0.5]

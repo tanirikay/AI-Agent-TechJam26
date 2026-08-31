@@ -10,13 +10,13 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agent import memory
-from agent.constraint_rerank import find_unmatched_constraints, rerank_by_exact_constraints
-from agent.price_rerank import (
+from src import memory
+from src.constraint_rerank import find_unmatched_constraints, rerank_by_exact_constraints
+from src.price_rerank import (
     rerank_by_maximum_budget,
     rerank_by_price_constraint,
 )
-from agent.retrieval import (
+from src.retrieval import (
     DEFAULT_FIELD_WEIGHTS,
     CatalogIndex,
     build_catalog_index,
@@ -26,7 +26,7 @@ from agent.retrieval import (
     retrieve_scored,
     _terms,
 )
-from agent.vocab import BudgetConstraint, extract_negated_values
+from src.vocab import BudgetConstraint, extract_negated_values
 
 POOL_THRESHOLD = 15          # candidate pool small enough to just answer
 RETRIEVAL_POOL_SIZE = 200    # how many candidates select_clarification_attribute scores over
@@ -219,7 +219,7 @@ class Agent:
         self.semantic_fallback_epsilon = semantic_fallback_epsilon
         self._embed_reranker = None
         if embed_rerank_window is not None or semantic_fallback_window is not None:
-            from agent.embed_rerank import get_shared_reranker
+            from agent_dev.embed_rerank import get_shared_reranker
 
             self._embed_reranker = get_shared_reranker(self.index.products)
         # Disabled by default: A/B tested on the public 200 (see agent.py's

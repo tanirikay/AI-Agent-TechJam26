@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from agent.vocab import BudgetConstraint, parse_price
+from src.vocab import BudgetConstraint, parse_price
 
 
 def _candidate_price(asin: str, products: Mapping[str, dict]) -> float | None:

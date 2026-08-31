@@ -16,8 +16,8 @@ from __future__ import annotations
 
 import argparse
 
-from agent import memory
-from agent.vocab import Vocabulary
+from src import memory
+from src.vocab import Vocabulary
 
 PRODUCTS = [
     {"parent_asin": "a1", "title": "Runner Pro Sneaker", "categories": ["Clothing", "Shoes", "Running Shoes"], "store": "Nimbus Athletics", "price": 60.0, "features": []},

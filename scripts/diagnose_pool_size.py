@@ -15,7 +15,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from agent.agent import Agent
+from agent_dev.agent import Agent
 from evaluator.local_evaluator import catalog_index, evaluate, load_jsonl
 
 
