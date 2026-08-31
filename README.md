@@ -151,22 +151,49 @@ the exact-match check printed at the moment of the hit.
 
 ## How it works
 
-`agent.py::Agent` combines:
+`agent.py::Agent` starts from **retrieval** (`src/retrieval.py`) — BM25 over
+a SQLite FTS5 index across six weighted fields (title, categories, features,
+details, store, description), queried with the full accumulated
+conversation, not just the latest message — then layers four mechanisms on
+top of that candidate pool:
 
-- **Retrieval** (`src/retrieval.py`) — BM25 over a SQLite FTS5 index across
-  six weighted fields (title, categories, features, details, store,
-  description), queried with the full accumulated conversation, not just the
-  latest message.
-- **Memory** (`src/memory.py`) — nine tracked slots (category, material,
-  color, size, style, brand, budget, feature, use_case), a separate raw-
-  constraint memory storing exactly what the shopper said, intent-override
-  and no-preference detection, and information-gain-based selection of which
-  attribute to ask about next.
-- **Deterministic reranking** (`src/price_rerank.py`, `src/constraint_rerank.py`,
-  and negation exclusion in `agent.py` itself) — budget/price demotion, an
-  always-on negation layer ("not wool" demotes wool-matching candidates), and
-  an exact-clause reranker that checks every disclosed fact word-for-word
-  against each candidate's own listing text.
+### Slot & verbatim memory extraction
+
+As the user interacts across multiple turns, the agent extracts both
+structured slot attributes (such as material, color, size, style, feature,
+and use-case) and raw, verbatim constraint strings. This dual-layer memory
+ensures that exact phrases mentioned by the user survive the entire
+multi-turn session without being lost or corrupted by intermediate
+interpretations. Additionally, the state tracker gracefully handles "no
+preference" responses by explicitly marking target slots as answered to
+avoid repeating questions or adding unnecessary cognitive load.
+
+### Deterministic filtering & negation handling
+
+To strictly honor negative constraints (e.g., "not wool or synthetic"), the
+system incorporates a deterministic exclusion layer. When an explicit
+negation phrase is detected, candidate products matching the excluded
+attributes are systematically demoted to the bottom of the candidate pool,
+preventing invalid options from surfacing during ranking.
+
+### Exact-constraint reranking
+
+Recognizing that customer disclosures often consist of literal quotes from
+target product listings, our pipeline evaluates top candidate items against
+the literal phrases disclosed by the user. Applying an exact-phrase
+rescorer across an empirically optimized candidate window dramatically
+improves retrieval precision (MRR) and pushes the exact target product to
+top ranking positions.
+
+### Proactive follow-up selection & defensive fallbacks
+
+To optimize conversational efficiency and lower the Mean Turns to
+Conversion (MTTC), the agent evaluates candidate pool overload. It
+dynamically selects follow-up questions aimed at maximizing information
+gain based on remaining unfilled slots. If primary attribute slots are
+exhausted, a defensive fallback tier evaluates secondary dimensions (such as
+brand, category, or budget) to ensure the system always makes meaningful
+forward progress.
 
 Full architecture detail, every design decision, and the complete iteration
 history (what was tried, what worked, what was rejected and why) is in
@@ -238,8 +265,17 @@ follow-up-question logic.
 **Iterations 2 through 9:** Calixton and Siew Woo drove the remaining
 iterations — tuning, vocabulary expansion, and the defensive mechanisms
 documented in `CLAUDE.md` — gathering feedback from Nivetha, Mahaa, and
-Tanirika throughout. Calixton focused on refining the memory layer; Siew Woo
-focused on the negation-exclusion layer and the defensive fallback tier.
+Tanirika throughout.
+
+**By component** (see "How it works" above):
+
+- **Slot & verbatim memory extraction** — Nivetha, Tanirika, and Mahaa,
+  bridging their buying/browsing and reranking work into the shared memory
+  layer.
+- **Deterministic filtering & negation handling**, including the defensive
+  fallback tier — Calixton.
+- **Exact-constraint reranking** and **proactive follow-up selection** —
+  Siew Woo.
 
 ## Source
 
