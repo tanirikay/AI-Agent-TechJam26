@@ -221,6 +221,26 @@ aggregate.
   route above, and validating the reranking-window choice against a genuinely
   new dataset rather than the same 200 sessions we've already tuned against.
 
+## Team contributions
+
+Five members: Nivetha, Tanirika, Mahaa, Calixton, Siew Woo.
+
+**Initial split (system design, no code yet):** Nivetha took buying/browsing
+logic; Tanirika and Mahaa took reranking; Calixton and Siew Woo took memory
+and follow-up questions.
+
+**Convergence and first iteration:** the team reconvened to discuss each
+track's strengths and limitations and synergized into a shared first
+iteration. Nivetha, Tanirika, and Mahaa worked on intent-identification
+logic and reranking; Calixton and Siew Woo refined the memory and
+follow-up-question logic.
+
+**Iterations 2 through 9:** Calixton and Siew Woo drove the remaining
+iterations — tuning, vocabulary expansion, and the defensive mechanisms
+documented in `CLAUDE.md` — gathering feedback from Nivetha, Mahaa, and
+Tanirika throughout. Calixton focused on refining the memory layer; Siew Woo
+focused on the negation-exclusion layer and the defensive fallback tier.
+
 ## Source
 
 - Participant repo: https://github.com/TechJam2026/techjam-conversational-search
